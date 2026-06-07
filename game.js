@@ -378,7 +378,28 @@ function extendDrag(r, c) {
   // Don't allow entering a cell already in a completed chain
   // Exception: cells from the chain being replaced are fair game
   const existingChainIdx = findChainIdx(r, c);
-  if (existingChainIdx !== -1 && existingChainIdx !== (active.chainToReplace ?? -1)) return;
+  if (existingChainIdx !== -1 && existingChainIdx !== (active.chainToReplace ?? -1)) {
+    // Only allow entering another chain's endpoint (for merging), never its middle cells
+    const other      = chains[existingChainIdx];
+    const isOtherFirst = other.cells[0][0] === r && other.cells[0][1] === c;
+    const isOtherLast  = other.cells[other.cells.length - 1][0] === r && other.cells[other.cells.length - 1][1] === c;
+    if (!isOtherFirst && !isOtherLast) return;
+
+    // Validate that the expected value matches this endpoint's stored value
+    const expectedVal   = cells[cells.length - 1][2] + active.step;
+    const endpointVal   = isOtherFirst ? other.cells[0][2] : other.cells[other.cells.length - 1][2];
+    if (endpointVal !== expectedVal) {
+      showMsg(`值不匹配：期望 ${expectedVal}，该链端点为 ${endpointVal}`);
+      return;
+    }
+
+    // Value matches — push the connecting cell and auto-commit (merge in endDrag)
+    cells.push([r, c, expectedVal]);
+    active.mergeChainIdx = existingChainIdx;
+    active.mergeAtStart  = isOtherFirst;
+    endDrag();
+    return;
+  }
 
   // Expected value = last cell's val + step (±1)
   const expectedVal = cells[cells.length - 1][2] + active.step;
@@ -402,20 +423,38 @@ function endDrag() {
     // Delete the old chain that was being replaced (deferred from startDrag)
     if (active.chainToReplace != null) {
       chains.splice(active.chainToReplace, 1);
+      // Adjust merge index if the splice shifted it
+      if (active.mergeChainIdx != null && active.chainToReplace < active.mergeChainIdx) {
+        active.mergeChainIdx--;
+      }
     }
+
+    // Build or extend the target chain
+    let targetChain;
     if (active.chainIdx === -1) {
       // New chain
-      chains.push({ cells: [...active.cells], ascending: active.step === 1, unique: active.unique });
+      targetChain = { cells: [...active.cells], ascending: active.step === 1, unique: active.unique };
+      chains.push(targetChain);
     } else if (!active.fromStart) {
       // Extend existing chain at end: append cells[1:]
-      const ch = chains[active.chainIdx];
-      ch.cells.push(...active.cells.slice(1));
+      targetChain = chains[active.chainIdx];
+      targetChain.cells.push(...active.cells.slice(1));
     } else {
       // Extend existing chain at start: prepend reversed cells[1:]
-      // active.cells = [anchor, step1, step2, ...]  →  prepend [step2, step1] before anchor
-      const ch = chains[active.chainIdx];
-      ch.cells = [...active.cells.slice(1).reverse(), ...ch.cells];
-      // vals already stored per-cell — no firstVal recalculation needed
+      targetChain = chains[active.chainIdx];
+      targetChain.cells = [...active.cells.slice(1).reverse(), ...targetChain.cells];
+    }
+
+    // Merge another chain if we dragged into its endpoint
+    if (active.mergeChainIdx != null) {
+      const mergeChain = chains.splice(active.mergeChainIdx, 1)[0];
+      if (active.mergeAtStart) {
+        // Connected to merge chain's first cell → append the rest forward
+        targetChain.cells.push(...mergeChain.cells.slice(1));
+      } else {
+        // Connected to merge chain's last cell → append the rest reversed
+        targetChain.cells.push(...mergeChain.cells.slice(0, -1).reverse());
+      }
     }
   }
 
