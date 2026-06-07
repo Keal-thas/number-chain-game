@@ -313,29 +313,23 @@ function startDrag(r, c) {
     const first = ch.cells[0];
     const last  = ch.cells[ch.cells.length - 1];
 
-    if (last[0] === r && last[1] === c) {
-      if (base.type === 'fixed') {
-        // Fixed anchor at end: inherit original chain direction, defer deletion to endDrag
-        active = { cells: [[r, c, base.value]], step: ch.ascending ? 1 : -1,
-                   unique: uniqMode, chainIdx: -1, fromStart: false, chainToReplace: ci };
-      } else {
-        active = { cells: [[r, c, last[2]]], step: ch.ascending ? 1 : -1,
-                   unique: ch.unique, chainIdx: ci, fromStart: false };
-      }
-      dragging = true; showMsg(''); render(); return;
+    const isLast  = last[0]  === r && last[1]  === c;
+    const isFirst = first[0] === r && first[1] === c;
+    if (!isLast && !isFirst) continue;
+
+    if (base.type === 'fixed') {
+      // Fixed anchor at either endpoint: restart fresh, inherit direction, defer deletion
+      active = { cells: [[r, c, base.value]], step: ch.ascending ? 1 : -1,
+                 unique: uniqMode, chainIdx: -1, fromStart: false, chainToReplace: ci };
+    } else if (isLast) {
+      active = { cells: [[r, c, last[2]]], step: ch.ascending ? 1 : -1,
+                 unique: ch.unique, chainIdx: ci, fromStart: false };
+    } else {
+      // isFirst, non-fixed: extend backwards along the chain
+      active = { cells: [[r, c, first[2]]], step: ch.ascending ? -1 : 1,
+                 unique: ch.unique, chainIdx: ci, fromStart: true };
     }
-    if (first[0] === r && first[1] === c) {
-      if (base.type === 'fixed') {
-        // Fixed anchor at start: inherit original chain direction, defer deletion to endDrag
-        active = { cells: [[r, c, base.value]], step: ch.ascending ? 1 : -1,
-                   unique: uniqMode, chainIdx: -1, fromStart: false, chainToReplace: ci };
-      } else {
-        // Extending from start: step is reversed (going backwards along the chain)
-        active = { cells: [[r, c, first[2]]], step: ch.ascending ? -1 : 1,
-                   unique: ch.unique, chainIdx: ci, fromStart: true };
-      }
-      dragging = true; showMsg(''); render(); return;
-    }
+    dragging = true; showMsg(''); render(); return;
   }
 
   // Case 2: fixed cell not yet in any chain → start new chain
