@@ -10,8 +10,8 @@ let GAP  = 28;
 
 // ─── State ───────────────────────────────────────────────
 let puzzle    = null;   // {rows, cols, grid: [{type,value}][]}
-let chains    = [];     // [{cells:[[r,c],...], firstVal, ascending, unique}]
-let active    = null;   // drag in progress: {cells, firstVal, ascending, unique, chainIdx}
+let chains    = [];     // [{cells:[[r,c,val],...], ascending, unique}]
+let active    = null;   // drag in progress: {cells:[[r,c,val],...], step:±1, unique, chainIdx, fromStart}
 let mode      = 'asc';
 let uniqMode  = false;
 let eraseMode = false;
@@ -121,10 +121,6 @@ function countFilledCells() {
 }
 
 // ─── Helpers ─────────────────────────────────────────────
-function chainCellVal(ch, idx) {
-  return ch.firstVal + (ch.ascending ? idx : -idx);
-}
-
 // Returns {ch: chain, idx: cellIndex} or null
 function findInChains(r, c) {
   for (const ch of chains) {
@@ -174,11 +170,11 @@ function getCellText(r, c) {
 
   if (inActive(r, c)) {
     const idx = active.cells.findIndex(([pr, pc]) => pr === r && pc === c);
-    return chainCellVal(active, idx);
+    return active.cells[idx][2];
   }
 
   const found = findInChains(r, c);
-  if (found) return chainCellVal(found.ch, found.idx);
+  if (found) return found.ch.cells[found.idx][2];
   return '';
 }
 
@@ -284,7 +280,7 @@ function handleEraseClick(r, c) {
     if (idx === 0) {
       ch.cells.shift();
       if (ch.cells.length === 0) chains.splice(ci, 1);
-      else ch.firstVal += (ch.ascending ? 1 : -1);
+      // val stored in cells — no firstVal sync needed
     } else if (idx === ch.cells.length - 1) {
       ch.cells.pop();
       if (ch.cells.length === 0) chains.splice(ci, 1);
@@ -293,11 +289,9 @@ function handleEraseClick(r, c) {
       const left  = ch.cells.slice(0, idx);
       const right = ch.cells.slice(idx + 1);
       chains.splice(ci, 1);
-      if (left.length  > 0) chains.push({ cells: left,  firstVal: ch.firstVal, ascending: ch.ascending, unique: ch.unique });
-      if (right.length > 0) {
-        const rightFirstVal = ch.firstVal + (ch.ascending ? idx + 1 : -(idx + 1));
-        chains.push({ cells: right, firstVal: rightFirstVal, ascending: ch.ascending, unique: ch.unique });
-      }
+      if (left.length  > 0) chains.push({ cells: left,  ascending: ch.ascending, unique: ch.unique });
+      if (right.length > 0) chains.push({ cells: right, ascending: ch.ascending, unique: ch.unique });
+      // vals already stored per-cell, no rightFirstVal calculation needed
     }
 
     render(); updateProgress(); return;
@@ -321,11 +315,11 @@ function startDrag(r, c) {
       if (base.type === 'fixed') {
         // Fixed anchor at end: clear chain, restart fresh from this anchor
         chains.splice(ci, 1);
-        active = { cells: [[r, c]], firstVal: base.value,
-                   ascending: mode === 'asc', unique: uniqMode, chainIdx: -1, fromStart: false };
+        active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1,
+                   unique: uniqMode, chainIdx: -1, fromStart: false };
       } else {
-        active = { cells: [[r, c]], firstVal: chainCellVal(ch, ch.cells.length - 1),
-                   ascending: ch.ascending, unique: ch.unique, chainIdx: ci, fromStart: false };
+        active = { cells: [[r, c, last[2]]], step: ch.ascending ? 1 : -1,
+                   unique: ch.unique, chainIdx: ci, fromStart: false };
       }
       dragging = true; showMsg(''); render(); return;
     }
@@ -333,11 +327,12 @@ function startDrag(r, c) {
       if (base.type === 'fixed') {
         // Fixed anchor at start: clear chain, restart fresh from this anchor
         chains.splice(ci, 1);
-        active = { cells: [[r, c]], firstVal: base.value,
-                   ascending: mode === 'asc', unique: uniqMode, chainIdx: -1, fromStart: false };
+        active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1,
+                   unique: uniqMode, chainIdx: -1, fromStart: false };
       } else {
-        active = { cells: [[r, c]], firstVal: ch.firstVal,
-                   ascending: ch.ascending, unique: ch.unique, chainIdx: ci, fromStart: true };
+        // Extending from start: step is reversed (going backwards along the chain)
+        active = { cells: [[r, c, first[2]]], step: ch.ascending ? -1 : 1,
+                   unique: ch.unique, chainIdx: ci, fromStart: true };
       }
       dragging = true; showMsg(''); render(); return;
     }
@@ -345,20 +340,19 @@ function startDrag(r, c) {
 
   // Case 2: fixed cell not yet in any chain → start new chain
   if (base.type === 'fixed' && !findInChains(r, c)) {
-    active = { cells: [[r, c]], firstVal: base.value,
-               ascending: mode === 'asc', unique: uniqMode, chainIdx: -1, fromStart: false };
+    active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1,
+               unique: uniqMode, chainIdx: -1, fromStart: false };
     dragging = true; showMsg(''); render(); return;
   }
 
-  // Middle of a chain → trim tail after this cell, then extend from here
+  // Case 3: middle of a chain → trim tail, extend from here
   const found = findInChains(r, c);
   if (found) {
     const { ch, idx } = found;
     const ci = chains.indexOf(ch);
-    // Remove everything after this cell so it becomes the new endpoint
     ch.cells = ch.cells.slice(0, idx + 1);
-    active = { cells: [[r, c]], firstVal: chainCellVal(ch, idx),
-               ascending: ch.ascending, unique: ch.unique, chainIdx: ci, fromStart: false };
+    active = { cells: [[r, c, ch.cells[idx][2]]], step: ch.ascending ? 1 : -1,
+               unique: ch.unique, chainIdx: ci, fromStart: false };
     dragging = true; showMsg('从此处继续'); render(); return;
   }
 
@@ -390,16 +384,8 @@ function extendDrag(r, c) {
   // Don't allow entering a cell already in a completed chain
   if (findChainIdx(r, c) !== -1) return;
 
-  // Compute expected value for next cell
-  const offset = cells.length; // steps from anchor (cells[0])
-  let expectedVal;
-  if (!active.fromStart) {
-    expectedVal = active.firstVal + (active.ascending ? offset : -offset);
-  } else {
-    // Extending from start: each step goes one step before the anchor
-    expectedVal = active.firstVal + (active.ascending ? -offset : offset);
-  }
-
+  // Expected value = last cell's val + step (±1)
+  const expectedVal = cells[cells.length - 1][2] + active.step;
   if (expectedVal < 1) return;
 
   if (base.type === 'fixed' && base.value !== expectedVal) {
@@ -407,7 +393,7 @@ function extendDrag(r, c) {
     return;
   }
 
-  cells.push([r, c]);
+  cells.push([r, c, expectedVal]);
   showMsg('');
   render();
 }
@@ -418,21 +404,17 @@ function endDrag() {
   if (active.cells.length >= 2) {
     if (active.chainIdx === -1) {
       // New chain
-      chains.push({ cells: [...active.cells], firstVal: active.firstVal, ascending: active.ascending, unique: active.unique });
+      chains.push({ cells: [...active.cells], ascending: active.step === 1, unique: active.unique });
     } else if (!active.fromStart) {
       // Extend existing chain at end: append cells[1:]
       const ch = chains[active.chainIdx];
       ch.cells.push(...active.cells.slice(1));
     } else {
       // Extend existing chain at start: prepend reversed cells[1:]
+      // active.cells = [anchor, step1, step2, ...]  →  prepend [step2, step1] before anchor
       const ch = chains[active.chainIdx];
-      const newCells = active.cells.slice(1).reverse();
-      const stepsFromAnchor = active.cells.length - 1;
-      const newFirstVal = active.ascending
-        ? active.firstVal - stepsFromAnchor
-        : active.firstVal + stepsFromAnchor;
-      ch.cells = [...newCells, ...ch.cells];
-      ch.firstVal = newFirstVal;
+      ch.cells = [...active.cells.slice(1).reverse(), ...ch.cells];
+      // vals already stored per-cell — no firstVal recalculation needed
     }
   }
 
