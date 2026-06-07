@@ -388,7 +388,8 @@ function extendDrag(r, c) {
 
   // Expected value = last cell's val + step (±1)
   const expectedVal = cells[cells.length - 1][2] + active.step;
-  if (expectedVal < 1) return;
+  if (expectedVal < 1) { showMsg('已到最小值 1'); return; }
+  if (expectedVal > totalCells) { showMsg(`已到最大值 ${totalCells}`); return; }
 
   if (base.type === 'fixed' && base.value !== expectedVal) {
     showMsg(`值不匹配：期望 ${expectedVal}，该格为 ${base.value}`);
