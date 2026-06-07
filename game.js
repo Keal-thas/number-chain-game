@@ -318,8 +318,8 @@ function startDrag(r, c) {
     if (!isLast && !isFirst) continue;
 
     if (base.type === 'fixed') {
-      // Fixed anchor at either endpoint: restart fresh, inherit direction, defer deletion
-      active = { cells: [[r, c, base.value]], step: ch.ascending ? 1 : -1,
+      // Fixed anchor at either endpoint: restart fresh using current mode, defer deletion
+      active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1,
                  unique: uniqMode, chainIdx: -1, fromStart: false, chainToReplace: ci };
     } else if (isLast) {
       active = { cells: [[r, c, last[2]]], step: ch.ascending ? 1 : -1,
