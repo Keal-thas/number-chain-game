@@ -549,19 +549,33 @@ function startDrag(r, c) {
     const last  = ch.cells[ch.cells.length - 1];
 
     if (last[0] === r && last[1] === c) {
-      active = { cells: [[r, c]], firstVal: chainCellVal(ch, ch.cells.length - 1),
-                 ascending: ch.ascending, unique: ch.unique, chainIdx: ci, fromStart: false };
+      if (base.type === 'fixed') {
+        // Fixed anchor at end: clear chain, restart fresh from this anchor
+        chains.splice(ci, 1);
+        active = { cells: [[r, c]], firstVal: base.value,
+                   ascending: mode === 'asc', unique: uniqMode, chainIdx: -1, fromStart: false };
+      } else {
+        active = { cells: [[r, c]], firstVal: chainCellVal(ch, ch.cells.length - 1),
+                   ascending: ch.ascending, unique: ch.unique, chainIdx: ci, fromStart: false };
+      }
       dragging = true; showMsg(''); render(); return;
     }
     if (first[0] === r && first[1] === c) {
-      active = { cells: [[r, c]], firstVal: ch.firstVal,
-                 ascending: ch.ascending, unique: ch.unique, chainIdx: ci, fromStart: true };
+      if (base.type === 'fixed') {
+        // Fixed anchor at start: clear chain, restart fresh from this anchor
+        chains.splice(ci, 1);
+        active = { cells: [[r, c]], firstVal: base.value,
+                   ascending: mode === 'asc', unique: uniqMode, chainIdx: -1, fromStart: false };
+      } else {
+        active = { cells: [[r, c]], firstVal: ch.firstVal,
+                   ascending: ch.ascending, unique: ch.unique, chainIdx: ci, fromStart: true };
+      }
       dragging = true; showMsg(''); render(); return;
     }
   }
 
   // Case 2: fixed cell not yet in any chain → start new chain
-  if (base.type === 'fixed') {
+  if (base.type === 'fixed' && !findInChains(r, c)) {
     active = { cells: [[r, c]], firstVal: base.value,
                ascending: mode === 'asc', unique: uniqMode, chainIdx: -1, fromStart: false };
     dragging = true; showMsg(''); render(); return;
@@ -616,6 +630,8 @@ function extendDrag(r, c) {
     // Extending from start: each step goes one step before the anchor
     expectedVal = active.firstVal + (active.ascending ? -offset : offset);
   }
+
+  if (expectedVal < 1) return;
 
   if (base.type === 'fixed' && base.value !== expectedVal) {
     showMsg(`值不匹配：期望 ${expectedVal}，该格为 ${base.value}`);
