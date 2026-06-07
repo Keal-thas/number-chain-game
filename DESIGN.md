@@ -72,7 +72,7 @@
 
 ## 五、技术架构
 
-**单文件**：`index.html`（HTML + CSS + JS，无依赖，浏览器直接打开）
+**三文件**：`index.html`（HTML 标记）+ `style.css`（样式）+ `game.js`（游戏逻辑），无依赖，浏览器直接打开
 
 **布局**
 - `#game-area`：相对定位容器
@@ -83,23 +83,27 @@
 
 **核心数据结构**
 ```js
-puzzle = { rows, cols, grid: [[{type, value}]] }
+puzzle = { rows, cols, grid: [[{type:'fixed'|'empty'|'blocked', value}]], totalCells }
 
 chains = [{
-  cells: [[r, c], ...],  // 有序格子坐标
-  firstVal: number,       // cells[0] 的数值
-  ascending: bool,        // true=升序
-  unique: bool            // true=绿色唯一路径
+  cells: [[r, c, val], ...],  // 有序格子坐标，值直接存在第三位
+  ascending: bool,             // true=升序
+  unique: bool                 // true=绿色唯一路径
 }]
 
-active = {  // 正在拖拽中的路径（同 chains 结构 + chainIdx/fromStart）
-  cells, firstVal, ascending, unique,
-  chainIdx,   // -1=新建，>=0=延伸已有链
-  fromStart   // true=从链头延伸（向前插入）
-}
+active = {  // 正在拖拽中的路径
+  cells: [[r, c, val], ...],
+  step: +1 | -1,          // 每步值的变化方向
+  unique: bool,
+  chainIdx: number,        // -1=新建，>=0=延伸已有链
+  fromStart: bool,         // true=从链头延伸（向前插入）
+  chainToReplace: number,  // 固定格重拖时暂存要删除的链索引
+  mergeChainIdx: number,   // 拖到另一条链端点时，要合并的链索引
+  mergeAtStart: bool,      // 连接到另一条链的起点（true）还是终点（false）
+} | null
 ```
 
-**值计算**：`cellValue(chain, index) = chain.firstVal + (ascending ? index : -index)`
+**值存储**：值直接存在每个 cell 的第三位 `[r, c, val]`，无需额外计算。
 
 **格子尺寸自适应**：根据 `Math.max(rows, cols)` 动态计算 `CELL`（直径）和 `GAP`（间距），最大区域 520px
 
@@ -110,4 +114,3 @@ active = {  // 正在拖拽中的路径（同 chains 结构 + chainIdx/fromStart
 - 谜题不自动生成，由用户提供 CSV
 - 不持久化存档（刷新即重置）
 - 不校验谜题是否有唯一解
-- 不支持连接两条独立链的端点（未实现合并逻辑）
