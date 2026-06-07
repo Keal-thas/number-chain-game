@@ -122,10 +122,12 @@ function countFilledCells() {
 
 // ─── Helpers ─────────────────────────────────────────────
 // Returns {ch: chain, idx: cellIndex} or null
+// Skips the chain being replaced during an active drag (so those cells render as empty)
 function findInChains(r, c) {
-  for (const ch of chains) {
-    const idx = ch.cells.findIndex(([pr, pc]) => pr === r && pc === c);
-    if (idx !== -1) return { ch, idx };
+  for (let i = 0; i < chains.length; i++) {
+    if (active && active.chainToReplace === i) continue;
+    const idx = chains[i].cells.findIndex(([pr, pc]) => pr === r && pc === c);
+    if (idx !== -1) return { ch: chains[i], idx };
   }
   return null;
 }
@@ -231,7 +233,7 @@ function renderSVG() {
   svg.innerHTML = '';
 
   const allPaths = [
-    ...chains,
+    ...chains.filter((_, i) => !(active && active.chainToReplace === i)),
     ...(active && active.cells.length > 1 ? [{ ...active, _active: true }] : []),
   ];
 
@@ -313,10 +315,9 @@ function startDrag(r, c) {
 
     if (last[0] === r && last[1] === c) {
       if (base.type === 'fixed') {
-        // Fixed anchor at end: clear chain, restart fresh from this anchor
-        chains.splice(ci, 1);
+        // Fixed anchor at end: defer deletion to endDrag to avoid losing chain on misclick
         active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1,
-                   unique: uniqMode, chainIdx: -1, fromStart: false };
+                   unique: uniqMode, chainIdx: -1, fromStart: false, chainToReplace: ci };
       } else {
         active = { cells: [[r, c, last[2]]], step: ch.ascending ? 1 : -1,
                    unique: ch.unique, chainIdx: ci, fromStart: false };
@@ -325,10 +326,9 @@ function startDrag(r, c) {
     }
     if (first[0] === r && first[1] === c) {
       if (base.type === 'fixed') {
-        // Fixed anchor at start: clear chain, restart fresh from this anchor
-        chains.splice(ci, 1);
+        // Fixed anchor at start: defer deletion to endDrag to avoid losing chain on misclick
         active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1,
-                   unique: uniqMode, chainIdx: -1, fromStart: false };
+                   unique: uniqMode, chainIdx: -1, fromStart: false, chainToReplace: ci };
       } else {
         // Extending from start: step is reversed (going backwards along the chain)
         active = { cells: [[r, c, first[2]]], step: ch.ascending ? -1 : 1,
@@ -382,7 +382,9 @@ function extendDrag(r, c) {
   if (inActive(r, c)) return;
 
   // Don't allow entering a cell already in a completed chain
-  if (findChainIdx(r, c) !== -1) return;
+  // Exception: cells from the chain being replaced are fair game
+  const existingChainIdx = findChainIdx(r, c);
+  if (existingChainIdx !== -1 && existingChainIdx !== (active.chainToReplace ?? -1)) return;
 
   // Expected value = last cell's val + step (±1)
   const expectedVal = cells[cells.length - 1][2] + active.step;
@@ -402,6 +404,10 @@ function endDrag() {
   if (!dragging || !active) { dragging = false; return; }
 
   if (active.cells.length >= 2) {
+    // Delete the old chain that was being replaced (deferred from startDrag)
+    if (active.chainToReplace != null) {
+      chains.splice(active.chainToReplace, 1);
+    }
     if (active.chainIdx === -1) {
       // New chain
       chains.push({ cells: [...active.cells], ascending: active.step === 1, unique: active.unique });
