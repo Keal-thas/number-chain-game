@@ -315,8 +315,8 @@ function startDrag(r, c) {
 
     if (last[0] === r && last[1] === c) {
       if (base.type === 'fixed') {
-        // Fixed anchor at end: defer deletion to endDrag to avoid losing chain on misclick
-        active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1,
+        // Fixed anchor at end: inherit original chain direction, defer deletion to endDrag
+        active = { cells: [[r, c, base.value]], step: ch.ascending ? 1 : -1,
                    unique: uniqMode, chainIdx: -1, fromStart: false, chainToReplace: ci };
       } else {
         active = { cells: [[r, c, last[2]]], step: ch.ascending ? 1 : -1,
@@ -326,8 +326,8 @@ function startDrag(r, c) {
     }
     if (first[0] === r && first[1] === c) {
       if (base.type === 'fixed') {
-        // Fixed anchor at start: defer deletion to endDrag to avoid losing chain on misclick
-        active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1,
+        // Fixed anchor at start: inherit original chain direction, defer deletion to endDrag
+        active = { cells: [[r, c, base.value]], step: ch.ascending ? 1 : -1,
                    unique: uniqMode, chainIdx: -1, fromStart: false, chainToReplace: ci };
       } else {
         // Extending from start: step is reversed (going backwards along the chain)
