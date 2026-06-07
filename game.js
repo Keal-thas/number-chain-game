@@ -11,7 +11,7 @@ let GAP  = 28;
 // ─── State ───────────────────────────────────────────────
 let puzzle    = null;   // {rows, cols, grid: [{type,value}][]}
 let chains    = [];     // [{cells:[[r,c,val],...], ascending, unique}]
-let active    = null;   // drag in progress: {cells:[[r,c,val],...], step:±1, unique, chainIdx, fromStart}
+let active    = null;   // drag in progress: {cells:[[r,c,val],...], step:±1, unique, chainIdx, fromStart, chainToReplace}
 let mode      = 'asc';
 let uniqMode  = false;
 let eraseMode = false;
@@ -132,20 +132,62 @@ function findInChains(r, c) {
   return null;
 }
 
-// Returns chain index or -1
-function findChainIdx(r, c) {
-  for (let i = 0; i < chains.length; i++) {
-    if (chains[i].cells.some(([pr, pc]) => pr === r && pc === c)) return i;
-  }
-  return -1;
-}
-
 function inActive(r, c) {
   return active && active.cells.some(([pr, pc]) => pr === r && pc === c);
 }
 
 function isAdj(r1, c1, r2, c2) {
   return Math.abs(r1 - r2) <= 1 && Math.abs(c1 - c2) <= 1 && (r1 !== r2 || c1 !== c2);
+}
+
+// Remove the cell at (r,c) from whatever chain owns it (splits chain if middle)
+function evictPosition(r, c) {
+  for (let i = chains.length - 1; i >= 0; i--) {
+    if (active && active.chainToReplace === i) continue;
+    const ch  = chains[i];
+    const idx = ch.cells.findIndex(([pr, pc]) => pr === r && pc === c);
+    if (idx === -1) continue;
+    if (idx === 0) {
+      ch.cells.shift();
+      if (ch.cells.length === 0) chains.splice(i, 1);
+    } else if (idx === ch.cells.length - 1) {
+      ch.cells.pop();
+      if (ch.cells.length === 0) chains.splice(i, 1);
+    } else {
+      const before = ch.cells.slice(0, idx);
+      const after  = ch.cells.slice(idx + 1);
+      chains.splice(i, 1);
+      if (before.length > 0) chains.push({ cells: before, ascending: ch.ascending, unique: ch.unique });
+      if (after.length  > 0) chains.push({ cells: after,  ascending: ch.ascending, unique: ch.unique });
+    }
+    break;
+  }
+}
+
+// Remove whatever cell currently holds value val from all chains (value uniqueness)
+function evictValue(val) {
+  for (let i = chains.length - 1; i >= 0; i--) {
+    if (active && active.chainToReplace === i) continue;
+    const ch  = chains[i];
+    const idx = ch.cells.findIndex(([, , v]) => v === val);
+    if (idx === -1) continue;
+    const [er, ec] = ch.cells[idx];
+    if (puzzle.grid[er][ec].type === 'fixed') continue;
+    if (idx === 0) {
+      ch.cells.shift();
+      if (ch.cells.length === 0) chains.splice(i, 1);
+    } else if (idx === ch.cells.length - 1) {
+      ch.cells.pop();
+      if (ch.cells.length === 0) chains.splice(i, 1);
+    } else {
+      const before = ch.cells.slice(0, idx);
+      const after  = ch.cells.slice(idx + 1);
+      chains.splice(i, 1);
+      if (before.length > 0) chains.push({ cells: before, ascending: ch.ascending, unique: ch.unique });
+      if (after.length  > 0) chains.push({ cells: after,  ascending: ch.ascending, unique: ch.unique });
+    }
+    break;
+  }
 }
 
 function cellCenter(r, c) {
@@ -339,15 +381,20 @@ function startDrag(r, c) {
     dragging = true; showMsg(''); render(); return;
   }
 
-  // Case 3: middle of a chain → trim tail, extend from here
+  // Case 3: middle of a chain → split into before/after fragments, start new chain here
   const found = findInChains(r, c);
   if (found) {
     const { ch, idx } = found;
-    const ci = chains.indexOf(ch);
-    ch.cells = ch.cells.slice(0, idx + 1);
-    active = { cells: [[r, c, ch.cells[idx][2]]], step: ch.ascending ? 1 : -1,
-               unique: ch.unique, chainIdx: ci, fromStart: false };
-    dragging = true; showMsg('从此处继续'); render(); return;
+    const ci     = chains.indexOf(ch);
+    const before = ch.cells.slice(0, idx);
+    const after  = ch.cells.slice(idx + 1);
+    const val    = ch.cells[idx][2];
+    chains.splice(ci, 1);
+    if (before.length > 0) chains.push({ cells: before, ascending: ch.ascending, unique: ch.unique });
+    if (after.length  > 0) chains.push({ cells: after,  ascending: ch.ascending, unique: ch.unique });
+    active = { cells: [[r, c, val]], step: mode === 'asc' ? 1 : -1,
+               unique: uniqMode, chainIdx: -1, fromStart: false };
+    dragging = true; showMsg(''); render(); return;
   }
 
   showMsg('请点击固定数字格或路径端点');
@@ -375,32 +422,6 @@ function extendDrag(r, c) {
   if (base.type === 'blocked') return;
   if (inActive(r, c)) return;
 
-  // Don't allow entering a cell already in a completed chain
-  // Exception: cells from the chain being replaced are fair game
-  const existingChainIdx = findChainIdx(r, c);
-  if (existingChainIdx !== -1 && existingChainIdx !== (active.chainToReplace ?? -1)) {
-    // Only allow entering another chain's endpoint (for merging), never its middle cells
-    const other      = chains[existingChainIdx];
-    const isOtherFirst = other.cells[0][0] === r && other.cells[0][1] === c;
-    const isOtherLast  = other.cells[other.cells.length - 1][0] === r && other.cells[other.cells.length - 1][1] === c;
-    if (!isOtherFirst && !isOtherLast) return;
-
-    // Validate that the expected value matches this endpoint's stored value
-    const expectedVal   = cells[cells.length - 1][2] + active.step;
-    const endpointVal   = isOtherFirst ? other.cells[0][2] : other.cells[other.cells.length - 1][2];
-    if (endpointVal !== expectedVal) {
-      showMsg(`值不匹配：期望 ${expectedVal}，该链端点为 ${endpointVal}`);
-      return;
-    }
-
-    // Value matches — push the connecting cell and auto-commit (merge in endDrag)
-    cells.push([r, c, expectedVal]);
-    active.mergeChainIdx = existingChainIdx;
-    active.mergeAtStart  = isOtherFirst;
-    endDrag();
-    return;
-  }
-
   // Expected value = last cell's val + step (±1)
   const expectedVal = cells[cells.length - 1][2] + active.step;
   if (expectedVal < 1) { showMsg('已到最小值 1'); return; }
@@ -411,6 +432,9 @@ function extendDrag(r, c) {
     return;
   }
 
+  // Evict: any old cell claiming this value, and any old cell occupying this position
+  evictValue(expectedVal);
+  evictPosition(r, c);
   cells.push([r, c, expectedVal]);
   showMsg('');
   render();
@@ -423,10 +447,6 @@ function endDrag() {
     // Delete the old chain that was being replaced (deferred from startDrag)
     if (active.chainToReplace != null) {
       chains.splice(active.chainToReplace, 1);
-      // Adjust merge index if the splice shifted it
-      if (active.mergeChainIdx != null && active.chainToReplace < active.mergeChainIdx) {
-        active.mergeChainIdx--;
-      }
     }
 
     // Build or extend the target chain
@@ -445,17 +465,6 @@ function endDrag() {
       targetChain.cells = [...active.cells.slice(1).reverse(), ...targetChain.cells];
     }
 
-    // Merge another chain if we dragged into its endpoint
-    if (active.mergeChainIdx != null) {
-      const mergeChain = chains.splice(active.mergeChainIdx, 1)[0];
-      if (active.mergeAtStart) {
-        // Connected to merge chain's first cell → append the rest forward
-        targetChain.cells.push(...mergeChain.cells.slice(1));
-      } else {
-        // Connected to merge chain's last cell → append the rest reversed
-        targetChain.cells.push(...mergeChain.cells.slice(0, -1).reverse());
-      }
-    }
   }
 
   active   = null;
