@@ -9,14 +9,16 @@ let CELL = 50;
 let GAP  = 28;
 
 // ─── State ───────────────────────────────────────────────
-let puzzle    = null;   // {rows, cols, grid: [{type,value}][]}
-let chains    = [];     // [{cells:[[r,c,val],...], ascending, unique}]
-let active    = null;   // drag in progress: {cells:[[r,c,val],...], step:±1, unique, chainIdx, fromStart, chainToReplace}
-let mode      = 'asc';
-let uniqMode  = false;
-let eraseMode = false;
-let dragging  = false;
-let totalCells = 0;     // total non-blocked cells (= max number)
+let puzzle      = null;        // {rows, cols, grid: [{type,value}][]}
+let cellValue   = [];          // [r][c] = number | null  (fixed cells excluded)
+let edges       = new Set();   // canonical "r1,c1-r2,c2" edge keys
+let lockedCells = new Set();   // "r,c" keys — unique/locked cells
+let active      = null;        // drag in progress: {cells:[[r,c,val],...], step:±1, unique}
+let mode        = 'asc';
+let uniqMode    = false;
+let eraseMode   = false;
+let dragging    = false;
+let totalCells  = 0;
 
 // ─── CSV ─────────────────────────────────────────────────
 function parsePuzzle(csv) {
@@ -49,13 +51,15 @@ function loadPuzzle() {
     puzzle = parsePuzzle(document.getElementById('csv-input').value);
     totalCells = puzzle.totalCells;
 
-    // Compute layout
     const n = Math.max(puzzle.rows, puzzle.cols);
     CELL = Math.min(MAX_CELL, Math.max(MIN_CELL, Math.floor((MAX_AREA - (n - 1) * MIN_GAP) / n)));
-    GAP  = Math.min(MAX_GAP, Math.max(MIN_GAP, Math.floor((MAX_AREA - n * CELL) / (n - 1))));
+    GAP  = Math.min(MAX_GAP,  Math.max(MIN_GAP,  Math.floor((MAX_AREA - n * CELL) / (n - 1))));
 
-    chains = [];
-    active = null;
+    cellValue   = Array.from({ length: puzzle.rows }, () => Array(puzzle.cols).fill(null));
+    edges       = new Set();
+    lockedCells = new Set();
+    active      = null;
+
     document.getElementById('controls').style.display = 'flex';
     render();
     showMsg('');
@@ -66,9 +70,11 @@ function loadPuzzle() {
 }
 
 function resetAll() {
-  chains = [];
-  active = null;
-  eraseMode = false;
+  cellValue   = Array.from({ length: puzzle.rows }, () => Array(puzzle.cols).fill(null));
+  edges       = new Set();
+  lockedCells = new Set();
+  active      = null;
+  eraseMode   = false;
   document.getElementById('btn-erase').classList.remove('active');
   document.getElementById('btn-erase').textContent = '✏ 擦除: 关';
   render();
@@ -107,29 +113,39 @@ function updateProgress() {
 }
 
 function countFilledCells() {
-  const seen = new Set();
-  for (const ch of chains) {
-    for (const [r, c] of ch.cells) seen.add(`${r},${c}`);
-  }
-  // Count fixed cells as filled too
-  if (puzzle) {
-    for (let r = 0; r < puzzle.rows; r++)
-      for (let c = 0; c < puzzle.cols; c++)
-        if (puzzle.grid[r][c].type === 'fixed') seen.add(`${r},${c}`);
-  }
-  return seen.size;
+  let count = 0;
+  for (let r = 0; r < puzzle.rows; r++)
+    for (let c = 0; c < puzzle.cols; c++) {
+      if (puzzle.grid[r][c].type === 'fixed') count++;
+      else if (cellValue[r][c] !== null) count++;
+    }
+  return count;
 }
 
-// ─── Helpers ─────────────────────────────────────────────
-// Returns {ch: chain, idx: cellIndex} or null
-// Skips the chain being replaced during an active drag (so those cells render as empty)
-function findInChains(r, c) {
-  for (let i = 0; i < chains.length; i++) {
-    if (active && active.chainToReplace === i) continue;
-    const idx = chains[i].cells.findIndex(([pr, pc]) => pr === r && pc === c);
-    if (idx !== -1) return { ch: chains[i], idx };
-  }
-  return null;
+// ─── Graph Helpers ────────────────────────────────────────
+function eKey(r1, c1, r2, c2) {
+  return r1 < r2 || (r1 === r2 && c1 < c2)
+    ? `${r1},${c1}-${r2},${c2}`
+    : `${r2},${c2}-${r1},${c1}`;
+}
+function addEdge(r1, c1, r2, c2)  { edges.add(eKey(r1, c1, r2, c2)); }
+function removeEdge(r1, c1, r2, c2) { edges.delete(eKey(r1, c1, r2, c2)); }
+function hasEdge(r1, c1, r2, c2)  { return edges.has(eKey(r1, c1, r2, c2)); }
+
+function getNeighbors(r, c) {
+  const result = [];
+  for (let dr = -1; dr <= 1; dr++)
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue;
+      const nr = r + dr, nc = c + dc;
+      if (nr >= 0 && nr < puzzle.rows && nc >= 0 && nc < puzzle.cols && hasEdge(r, c, nr, nc))
+        result.push([nr, nc]);
+    }
+  return result;
+}
+
+function getEffectiveValue(r, c) {
+  return puzzle.grid[r][c].type === 'fixed' ? puzzle.grid[r][c].value : cellValue[r][c];
 }
 
 function inActive(r, c) {
@@ -140,53 +156,37 @@ function isAdj(r1, c1, r2, c2) {
   return Math.abs(r1 - r2) <= 1 && Math.abs(c1 - c2) <= 1 && (r1 !== r2 || c1 !== c2);
 }
 
-// Remove the cell at (r,c) from whatever chain owns it (splits chain if middle)
+// Remove a non-fixed cell from the graph (clear value + all its edges)
 function evictPosition(r, c) {
-  for (let i = chains.length - 1; i >= 0; i--) {
-    if (active && active.chainToReplace === i) continue;
-    const ch  = chains[i];
-    const idx = ch.cells.findIndex(([pr, pc]) => pr === r && pc === c);
-    if (idx === -1) continue;
-    if (idx === 0) {
-      ch.cells.shift();
-      if (ch.cells.length === 0) chains.splice(i, 1);
-    } else if (idx === ch.cells.length - 1) {
-      ch.cells.pop();
-      if (ch.cells.length === 0) chains.splice(i, 1);
-    } else {
-      const before = ch.cells.slice(0, idx);
-      const after  = ch.cells.slice(idx + 1);
-      chains.splice(i, 1);
-      if (before.length > 0) chains.push({ cells: before, ascending: ch.ascending, unique: ch.unique });
-      if (after.length  > 0) chains.push({ cells: after,  ascending: ch.ascending, unique: ch.unique });
-    }
-    break;
-  }
+  if (puzzle.grid[r][c].type === 'fixed') return;
+  cellValue[r][c] = null;
+  lockedCells.delete(`${r},${c}`);
+  for (const [nr, nc] of [...getNeighbors(r, c)]) removeEdge(r, c, nr, nc);
 }
 
-// Remove whatever cell currently holds value val from all chains (value uniqueness)
+// Remove whichever non-fixed cell currently holds this value
 function evictValue(val) {
-  for (let i = chains.length - 1; i >= 0; i--) {
-    if (active && active.chainToReplace === i) continue;
-    const ch  = chains[i];
-    const idx = ch.cells.findIndex(([, , v]) => v === val);
-    if (idx === -1) continue;
-    const [er, ec] = ch.cells[idx];
-    if (puzzle.grid[er][ec].type === 'fixed') continue;
-    if (idx === 0) {
-      ch.cells.shift();
-      if (ch.cells.length === 0) chains.splice(i, 1);
-    } else if (idx === ch.cells.length - 1) {
-      ch.cells.pop();
-      if (ch.cells.length === 0) chains.splice(i, 1);
-    } else {
-      const before = ch.cells.slice(0, idx);
-      const after  = ch.cells.slice(idx + 1);
-      chains.splice(i, 1);
-      if (before.length > 0) chains.push({ cells: before, ascending: ch.ascending, unique: ch.unique });
-      if (after.length  > 0) chains.push({ cells: after,  ascending: ch.ascending, unique: ch.unique });
+  for (let r = 0; r < puzzle.rows; r++)
+    for (let c = 0; c < puzzle.cols; c++)
+      if (cellValue[r][c] === val) { evictPosition(r, c); return; }
+}
+
+// BFS — clear all cells in the connected component rooted at (startR, startC)
+function clearConnectedPath(startR, startC) {
+  const visited = new Set([`${startR},${startC}`]);
+  const queue   = [[startR, startC]];
+  while (queue.length) {
+    const [r, c] = queue.shift();
+    for (const [nr, nc] of getNeighbors(r, c)) {
+      const key = `${nr},${nc}`;
+      if (!visited.has(key)) { visited.add(key); queue.push([nr, nc]); }
     }
-    break;
+  }
+  for (const key of visited) {
+    const [r, c] = key.split(',').map(Number);
+    if (puzzle.grid[r][c].type !== 'fixed') cellValue[r][c] = null;
+    lockedCells.delete(key);
+    for (const [nr, nc] of [...getNeighbors(r, c)]) removeEdge(r, c, nr, nc);
   }
 }
 
@@ -201,51 +201,41 @@ function getCellClass(r, c) {
   if (base.type === 'blocked') return 'cell-blocked';
   if (base.type === 'fixed')   return inActive(r, c) ? 'cell-fixed cell-active-fixed' : 'cell-fixed';
   if (inActive(r, c))          return 'cell-active';
-
-  const found = findInChains(r, c);
-  if (found) return found.ch.unique ? 'cell-unique' : 'cell-filled';
+  if (cellValue[r][c] !== null)
+    return lockedCells.has(`${r},${c}`) ? 'cell-unique' : 'cell-filled';
   return 'cell-empty';
 }
 
 function getCellText(r, c) {
   const base = puzzle.grid[r][c];
-  if (base.type === 'fixed') return base.value;
+  if (base.type === 'fixed')   return base.value;
   if (base.type === 'blocked') return '';
-
   if (inActive(r, c)) {
     const idx = active.cells.findIndex(([pr, pc]) => pr === r && pc === c);
     return active.cells[idx][2];
   }
-
-  const found = findInChains(r, c);
-  if (found) return found.ch.cells[found.idx][2];
-  return '';
+  return cellValue[r][c] ?? '';
 }
 
-function render() {
-  renderCells();
-  renderSVG();
-}
+function render() { renderCells(); renderSVG(); }
 
 function renderCells() {
   const { rows, cols } = puzzle;
-  const layer  = document.getElementById('cells-layer');
-  const step   = CELL + GAP;
-  const W      = cols * step - GAP;
-  const H      = rows * step - GAP;
+  const layer = document.getElementById('cells-layer');
+  const step  = CELL + GAP;
+  const W     = cols * step - GAP;
+  const H     = rows * step - GAP;
 
   layer.style.width  = W + 'px';
   layer.style.height = H + 'px';
   layer.style.gridTemplateColumns = `repeat(${cols}, ${CELL}px)`;
-  layer.style.gap = GAP + 'px';
+  layer.style.gap     = GAP + 'px';
   layer.style.display = 'grid';
 
-  // Resize SVG
   const svg = document.getElementById('svg-overlay');
   svg.setAttribute('width', W);
   svg.setAttribute('height', H);
 
-  // Resize game-area
   const area = document.getElementById('game-area');
   area.style.width  = W + 'px';
   area.style.height = H + 'px';
@@ -258,7 +248,7 @@ function renderCells() {
   let i = 0;
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      const div  = layer.children[i++];
+      const div = layer.children[i++];
       div.className  = `cell ${getCellClass(r, c)}`;
       div.style.width  = CELL + 'px';
       div.style.height = CELL + 'px';
@@ -274,33 +264,38 @@ function renderSVG() {
   const svg = document.getElementById('svg-overlay');
   svg.innerHTML = '';
 
-  const allPaths = [
-    ...chains.filter((_, i) => !(active && active.chainToReplace === i)),
-    ...(active && active.cells.length > 1 ? [{ ...active, _active: true }] : []),
-  ];
+  // Committed edges
+  for (const key of edges) {
+    const dash = key.indexOf('-', key.indexOf(',') + 1);
+    const [r1, c1] = key.slice(0, dash).split(',').map(Number);
+    const [r2, c2] = key.slice(dash + 1).split(',').map(Number);
+    const locked = lockedCells.has(`${r1},${c1}`) && lockedCells.has(`${r2},${c2}`);
+    svg.appendChild(makeEdgeSegments(
+      [cellCenter(r1, c1), cellCenter(r2, c2)],
+      locked ? '#3ab87a' : '#3a6acc', 5, 0.9
+    ));
+  }
 
-  for (const p of allPaths) {
-    if (p.cells.length < 2) continue;
-    const pts   = p.cells.map(([r, c]) => cellCenter(r, c));
-    const color = p._active ? '#5599dd' : (p.unique ? '#3ab87a' : '#3a6acc');
-    const opacity = p._active ? 0.65 : 0.9;
-    svg.appendChild(makeEdgeSegments(pts, color, 5, opacity));
+  // Active drag path
+  if (active && active.cells.length > 1) {
+    svg.appendChild(makeEdgeSegments(
+      active.cells.map(([r, c]) => cellCenter(r, c)),
+      '#5599dd', 5, 0.65
+    ));
   }
 }
 
-// Draw line segments from the EDGE of each circle to the EDGE of the next,
-// so the lines never cover the numbers inside circles.
 function makeEdgeSegments(pts, stroke, width, opacity) {
-  const R = CELL / 2 + 1; // circle radius + tiny gap
+  const R = CELL / 2 + 1;
   let d = '';
   for (let i = 0; i < pts.length - 1; i++) {
     const [x1, y1] = pts[i];
     const [x2, y2] = pts[i + 1];
-    const dx   = x2 - x1, dy = y2 - y1;
+    const dx = x2 - x1, dy = y2 - y1;
     const dist = Math.hypot(dx, dy);
-    const ux   = dx / dist, uy = dy / dist;
-    const sx   = x1 + R * ux, sy = y1 + R * uy;
-    const ex   = x2 - R * ux, ey = y2 - R * uy;
+    const ux = dx / dist, uy = dy / dist;
+    const sx = x1 + R * ux, sy = y1 + R * uy;
+    const ex = x2 - R * ux, ey = y2 - R * uy;
     d += `M${sx.toFixed(1)},${sy.toFixed(1)} L${ex.toFixed(1)},${ey.toFixed(1)} `;
   }
   const el = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -315,89 +310,51 @@ function makeEdgeSegments(pts, stroke, width, opacity) {
 
 // ─── Drag ────────────────────────────────────────────────
 function handleEraseClick(r, c) {
-  for (let ci = 0; ci < chains.length; ci++) {
-    const ch  = chains[ci];
-    const idx = ch.cells.findIndex(([pr, pc]) => pr === r && pc === c);
-    if (idx === -1) continue;
-
-    // Endpoint: just trim
-    if (idx === 0) {
-      ch.cells.shift();
-      if (ch.cells.length === 0) chains.splice(ci, 1);
-      // val stored in cells — no firstVal sync needed
-    } else if (idx === ch.cells.length - 1) {
-      ch.cells.pop();
-      if (ch.cells.length === 0) chains.splice(ci, 1);
-    } else {
-      // Middle: split into two chains
-      const left  = ch.cells.slice(0, idx);
-      const right = ch.cells.slice(idx + 1);
-      chains.splice(ci, 1);
-      if (left.length  > 0) chains.push({ cells: left,  ascending: ch.ascending, unique: ch.unique });
-      if (right.length > 0) chains.push({ cells: right, ascending: ch.ascending, unique: ch.unique });
-      // vals already stored per-cell, no rightFirstVal calculation needed
-    }
-
-    render(); updateProgress(); return;
-  }
+  const base = puzzle.grid[r][c];
+  if (base.type === 'blocked') return;
+  const nbrs = [...getNeighbors(r, c)];
+  const hasVal = base.type === 'fixed' || cellValue[r][c] !== null;
+  if (!hasVal && nbrs.length === 0) return;
+  for (const [nr, nc] of nbrs) removeEdge(r, c, nr, nc);
+  if (base.type !== 'fixed') { cellValue[r][c] = null; lockedCells.delete(`${r},${c}`); }
+  render(); updateProgress();
 }
 
 function startDrag(r, c) {
   if (!puzzle) return;
   const base = puzzle.grid[r][c];
   if (base.type === 'blocked') return;
-
   if (eraseMode) { handleEraseClick(r, c); return; }
 
-  // Case 1: endpoint of an existing chain → extend
-  for (let ci = 0; ci < chains.length; ci++) {
-    const ch    = chains[ci];
-    const first = ch.cells[0];
-    const last  = ch.cells[ch.cells.length - 1];
+  const myVal = getEffectiveValue(r, c);
+  if (myVal === null) { showMsg('请点击固定数字格或路径端点'); return; }
 
-    const isLast  = last[0]  === r && last[1]  === c;
-    const isFirst = first[0] === r && first[1] === c;
-    if (!isLast && !isFirst) continue;
+  const nbrs = getNeighbors(r, c);
 
-    if (base.type === 'fixed') {
-      // Fixed anchor at either endpoint: restart fresh using current mode, defer deletion
-      active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1,
-                 unique: uniqMode, chainIdx: -1, fromStart: false, chainToReplace: ci };
-    } else if (isLast) {
-      active = { cells: [[r, c, last[2]]], step: ch.ascending ? 1 : -1,
-                 unique: ch.unique, chainIdx: ci, fromStart: false };
+  // Fixed cell: clear connected path and start fresh
+  if (base.type === 'fixed') {
+    clearConnectedPath(r, c);
+    active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1, unique: uniqMode };
+    dragging = true; showMsg(''); render(); return;
+  }
+
+  // Non-fixed endpoint (0 or 1 neighbor): extend
+  if (nbrs.length <= 1) {
+    let step;
+    if (nbrs.length === 0) {
+      step = mode === 'asc' ? 1 : -1;
     } else {
-      // isFirst, non-fixed: extend backwards along the chain
-      active = { cells: [[r, c, first[2]]], step: ch.ascending ? -1 : 1,
-                 unique: ch.unique, chainIdx: ci, fromStart: true };
+      const [nr, nc] = nbrs[0];
+      step = myVal > getEffectiveValue(nr, nc) ? 1 : -1;
     }
+    active = { cells: [[r, c, myVal]], step, unique: lockedCells.has(`${r},${c}`) };
     dragging = true; showMsg(''); render(); return;
   }
 
-  // Case 2: fixed cell not yet in any chain → start new chain
-  if (base.type === 'fixed' && !findInChains(r, c)) {
-    active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1,
-               unique: uniqMode, chainIdx: -1, fromStart: false };
-    dragging = true; showMsg(''); render(); return;
-  }
-
-  // Case 3: middle of a chain → split into before/after fragments, start new chain here
-  const found = findInChains(r, c);
-  if (found) {
-    const { ch, idx } = found;
-    const ci     = chains.indexOf(ch);
-    const before = ch.cells.slice(0, idx);
-    const after  = ch.cells.slice(idx + 1);
-    const val    = ch.cells[idx][2];
-    chains.splice(ci, 1);
-    if (before.length > 0) chains.push({ cells: before, ascending: ch.ascending, unique: ch.unique });
-    if (after.length  > 0) chains.push({ cells: after,  ascending: ch.ascending, unique: ch.unique });
-    active = { cells: [[r, c, val]], step: mode === 'asc' ? 1 : -1,
-               unique: uniqMode, chainIdx: -1, fromStart: false };
-    dragging = true; showMsg(''); render(); return;
-  }
-
-  showMsg('请点击固定数字格或路径端点');
+  // Non-fixed middle cell (2+ neighbors): extract from graph, start new chain
+  evictPosition(r, c);
+  active = { cells: [[r, c, myVal]], step: mode === 'asc' ? 1 : -1, unique: uniqMode };
+  dragging = true; showMsg(''); render();
 }
 
 function extendDrag(r, c) {
@@ -408,11 +365,7 @@ function extendDrag(r, c) {
   // Back-drag → pop
   if (cells.length >= 2) {
     const [pr, pc] = cells[cells.length - 2];
-    if (pr === r && pc === c) {
-      cells.pop();
-      render();
-      return;
-    }
+    if (pr === r && pc === c) { cells.pop(); render(); return; }
   }
 
   if (r === lr && c === lc) return;
@@ -422,7 +375,6 @@ function extendDrag(r, c) {
   if (base.type === 'blocked') return;
   if (inActive(r, c)) return;
 
-  // Expected value = last cell's val + step (±1)
   const expectedVal = cells[cells.length - 1][2] + active.step;
   if (expectedVal < 1) { showMsg('已到最小值 1'); return; }
   if (expectedVal > totalCells) { showMsg(`已到最大值 ${totalCells}`); return; }
@@ -432,7 +384,6 @@ function extendDrag(r, c) {
     return;
   }
 
-  // Evict: any old cell claiming this value, and any old cell occupying this position
   evictValue(expectedVal);
   evictPosition(r, c);
   cells.push([r, c, expectedVal]);
@@ -444,27 +395,15 @@ function endDrag() {
   if (!dragging || !active) { dragging = false; return; }
 
   if (active.cells.length >= 2) {
-    // Delete the old chain that was being replaced (deferred from startDrag)
-    if (active.chainToReplace != null) {
-      chains.splice(active.chainToReplace, 1);
+    for (let i = 0; i < active.cells.length; i++) {
+      const [r, c, val] = active.cells[i];
+      if (puzzle.grid[r][c].type !== 'fixed') cellValue[r][c] = val;
+      if (active.unique) lockedCells.add(`${r},${c}`);
+      if (i > 0) {
+        const [pr, pc] = active.cells[i - 1];
+        addEdge(pr, pc, r, c);
+      }
     }
-
-    // Build or extend the target chain
-    let targetChain;
-    if (active.chainIdx === -1) {
-      // New chain
-      targetChain = { cells: [...active.cells], ascending: active.step === 1, unique: active.unique };
-      chains.push(targetChain);
-    } else if (!active.fromStart) {
-      // Extend existing chain at end: append cells[1:]
-      targetChain = chains[active.chainIdx];
-      targetChain.cells.push(...active.cells.slice(1));
-    } else {
-      // Extend existing chain at start: prepend reversed cells[1:]
-      targetChain = chains[active.chainIdx];
-      targetChain.cells = [...active.cells.slice(1).reverse(), ...targetChain.cells];
-    }
-
   }
 
   active   = null;
@@ -477,13 +416,13 @@ function endDrag() {
 function eventPosFromXY(clientX, clientY) {
   const layer = document.getElementById('cells-layer');
   if (!layer || !puzzle) return null;
-  const rect = layer.getBoundingClientRect();
+  const rect   = layer.getBoundingClientRect();
   const x = clientX - rect.left;
   const y = clientY - rect.top;
-  const step = CELL + GAP;
+  const step   = CELL + GAP;
   const radius = CELL / 2;
-  const col = Math.round(x / step);
-  const row = Math.round(y / step);
+  const col    = Math.round(x / step);
+  const row    = Math.round(y / step);
   if (row < 0 || row >= puzzle.rows || col < 0 || col >= puzzle.cols) return null;
   const cx = col * step + CELL / 2;
   const cy = row * step + CELL / 2;
@@ -517,7 +456,6 @@ gameArea.addEventListener('pointercancel', () => {
   if (puzzle) render();
 });
 
-// Block all text selection on the game area
 gameArea.addEventListener('selectstart', e => e.preventDefault());
 document.addEventListener('selectstart', e => {
   if (!e.target.closest('#setup')) e.preventDefault();
