@@ -11,7 +11,6 @@ let GAP  = 28;
 // ─── State ───────────────────────────────────────────────
 let puzzle      = null;        // {rows, cols, grid: [{type,value}][]}
 let cellValue   = [];          // [r][c] = number | null  (fixed cells excluded)
-let edges       = new Set();   // canonical "r1,c1-r2,c2" edge keys
 let lockedCells = new Set();   // "r,c" keys — unique/locked cells
 let active      = null;        // drag in progress: {cells:[[r,c,val],...], step:±1, unique}
 let mode        = 'asc';
@@ -56,7 +55,6 @@ function loadPuzzle() {
     GAP  = Math.min(MAX_GAP,  Math.max(MIN_GAP,  Math.floor((MAX_AREA - n * CELL) / (n - 1))));
 
     cellValue   = Array.from({ length: puzzle.rows }, () => Array(puzzle.cols).fill(null));
-    edges       = new Set();
     lockedCells = new Set();
     active      = null;
 
@@ -71,7 +69,6 @@ function loadPuzzle() {
 
 function resetAll() {
   cellValue   = Array.from({ length: puzzle.rows }, () => Array(puzzle.cols).fill(null));
-  edges       = new Set();
   lockedCells = new Set();
   active      = null;
   eraseMode   = false;
@@ -123,23 +120,18 @@ function countFilledCells() {
 }
 
 // ─── Graph Helpers ────────────────────────────────────────
-function eKey(r1, c1, r2, c2) {
-  return r1 < r2 || (r1 === r2 && c1 < c2)
-    ? `${r1},${c1}-${r2},${c2}`
-    : `${r2},${c2}-${r1},${c1}`;
-}
-function addEdge(r1, c1, r2, c2)  { edges.add(eKey(r1, c1, r2, c2)); }
-function removeEdge(r1, c1, r2, c2) { edges.delete(eKey(r1, c1, r2, c2)); }
-function hasEdge(r1, c1, r2, c2)  { return edges.has(eKey(r1, c1, r2, c2)); }
-
+// Two cells are connected iff they are adjacent and their values differ by exactly 1.
 function getNeighbors(r, c) {
+  const myVal = getEffectiveValue(r, c);
+  if (myVal === null) return [];
   const result = [];
   for (let dr = -1; dr <= 1; dr++)
     for (let dc = -1; dc <= 1; dc++) {
       if (dr === 0 && dc === 0) continue;
       const nr = r + dr, nc = c + dc;
-      if (nr >= 0 && nr < puzzle.rows && nc >= 0 && nc < puzzle.cols && hasEdge(r, c, nr, nc))
-        result.push([nr, nc]);
+      if (nr < 0 || nr >= puzzle.rows || nc < 0 || nc >= puzzle.cols) continue;
+      const nVal = getEffectiveValue(nr, nc);
+      if (nVal !== null && Math.abs(nVal - myVal) === 1) result.push([nr, nc]);
     }
   return result;
 }
@@ -157,12 +149,11 @@ function isAdj(r1, c1, r2, c2) {
 }
 
 
-// Remove a non-fixed cell from the graph (clear value + all its edges)
+// Remove a non-fixed cell from the graph (clear value; connections update automatically)
 function evictPosition(r, c) {
   if (puzzle.grid[r][c].type === 'fixed') return;
   cellValue[r][c] = null;
   lockedCells.delete(`${r},${c}`);
-  for (const [nr, nc] of [...getNeighbors(r, c)]) removeEdge(r, c, nr, nc);
 }
 
 // Remove whichever non-fixed cell currently holds this value
@@ -172,12 +163,15 @@ function evictValue(val) {
       if (cellValue[r][c] === val) { evictPosition(r, c); return; }
 }
 
-// BFS — clear all cells in the connected component rooted at (startR, startC)
+// BFS — clear all cells in the connected component rooted at (startR, startC).
+// Fixed cells other than the start are treated as boundary anchors: visited but not expanded,
+// preventing cascade into chains anchored at different fixed cells.
 function clearConnectedPath(startR, startC) {
   const visited = new Set([`${startR},${startC}`]);
   const queue   = [[startR, startC]];
   while (queue.length) {
     const [r, c] = queue.shift();
+    if ((r !== startR || c !== startC) && puzzle.grid[r][c].type === 'fixed') continue;
     for (const [nr, nc] of getNeighbors(r, c)) {
       const key = `${nr},${nc}`;
       if (!visited.has(key)) { visited.add(key); queue.push([nr, nc]); }
@@ -187,7 +181,6 @@ function clearConnectedPath(startR, startC) {
     const [r, c] = key.split(',').map(Number);
     if (puzzle.grid[r][c].type !== 'fixed') cellValue[r][c] = null;
     lockedCells.delete(key);
-    for (const [nr, nc] of [...getNeighbors(r, c)]) removeEdge(r, c, nr, nc);
   }
 }
 
@@ -265,16 +258,21 @@ function renderSVG() {
   const svg = document.getElementById('svg-overlay');
   svg.innerHTML = '';
 
-  // Committed edges
-  for (const key of edges) {
-    const dash = key.indexOf('-', key.indexOf(',') + 1);
-    const [r1, c1] = key.slice(0, dash).split(',').map(Number);
-    const [r2, c2] = key.slice(dash + 1).split(',').map(Number);
-    const locked = lockedCells.has(`${r1},${c1}`) && lockedCells.has(`${r2},${c2}`);
-    svg.appendChild(makeEdgeSegments(
-      [cellCenter(r1, c1), cellCenter(r2, c2)],
-      locked ? '#3ab87a' : '#3a6acc', 5, 0.9
-    ));
+  // Draw a line between every adjacent pair with consecutive values (draw once: from lower to higher)
+  for (let r = 0; r < puzzle.rows; r++) {
+    for (let c = 0; c < puzzle.cols; c++) {
+      const myVal = getEffectiveValue(r, c);
+      if (myVal === null) continue;
+      for (const [nr, nc] of getNeighbors(r, c)) {
+        const nVal = getEffectiveValue(nr, nc);
+        if (nVal !== myVal + 1) continue; // only draw from smaller to larger to avoid duplicates
+        const locked = lockedCells.has(`${r},${c}`) && lockedCells.has(`${nr},${nc}`);
+        svg.appendChild(makeEdgeSegments(
+          [cellCenter(r, c), cellCenter(nr, nc)],
+          locked ? '#3ab87a' : '#3a6acc', 5, 0.9
+        ));
+      }
+    }
   }
 
   // Active drag path
@@ -313,11 +311,10 @@ function makeEdgeSegments(pts, stroke, width, opacity) {
 function handleEraseClick(r, c) {
   const base = puzzle.grid[r][c];
   if (base.type === 'blocked') return;
-  const nbrs = [...getNeighbors(r, c)];
-  const hasVal = base.type === 'fixed' || cellValue[r][c] !== null;
-  if (!hasVal && nbrs.length === 0) return;
-  for (const [nr, nc] of nbrs) removeEdge(r, c, nr, nc);
-  if (base.type !== 'fixed') { cellValue[r][c] = null; lockedCells.delete(`${r},${c}`); }
+  if (base.type === 'fixed') return;      // fixed cells cannot be erased
+  if (cellValue[r][c] === null) return;
+  cellValue[r][c] = null;
+  lockedCells.delete(`${r},${c}`);
   render(); updateProgress();
 }
 
@@ -332,9 +329,8 @@ function startDrag(r, c) {
 
   const nbrs = getNeighbors(r, c);
 
-  // Fixed cell: clear connected path and start fresh
+  // Fixed cell: start drag; opposite-direction side untouched, same-direction evicted lazily
   if (base.type === 'fixed') {
-    clearConnectedPath(r, c);
     active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1, unique: uniqMode };
     dragging = true; showMsg(''); render(); return;
   }
@@ -346,15 +342,7 @@ function startDrag(r, c) {
     dragging = true; showMsg(''); render(); return;
   }
 
-  // Non-fixed middle cell (2+ neighbors): disconnect successor edge (mode-based);
-  // successor cells stay visible and are evicted lazily via evictValue() during drag
-  {
-    const nbrsList = [...getNeighbors(r, c)];
-    const predVal = myVal - (mode === 'asc' ? 1 : -1);
-    for (const [nr, nc] of nbrsList) {
-      if (getEffectiveValue(nr, nc) !== predVal) removeEdge(r, c, nr, nc);
-    }
-  }
+  // Non-fixed middle cell (2+ neighbors): start drag from here; successor side evicted lazily
   active = { cells: [[r, c, myVal]], step: mode === 'asc' ? 1 : -1, unique: uniqMode };
   dragging = true; showMsg(''); render();
 }
@@ -409,14 +397,9 @@ function endDrag() {
   if (!dragging || !active) { dragging = false; return; }
 
   if (active.cells.length >= 2) {
-    for (let i = 0; i < active.cells.length; i++) {
-      const [r, c, val] = active.cells[i];
+    for (const [r, c, val] of active.cells) {
       if (puzzle.grid[r][c].type !== 'fixed') cellValue[r][c] = val;
       if (active.unique) lockedCells.add(`${r},${c}`);
-      if (i > 0) {
-        const [pr, pc] = active.cells[i - 1];
-        addEdge(pr, pc, r, c);
-      }
     }
   }
 

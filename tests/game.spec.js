@@ -149,17 +149,17 @@ test.describe('reset', () => {
 
 // ─── Bug regression ───────────────────────────────────────
 test.describe('bug regression', () => {
-  // Bug 1: middle-cell drag must preserve the head-side edge
+  // Bug 1: middle-cell drag must preserve the head-side connection
   test('Bug1: dragging from middle cell preserves head-side connection', async ({ page }) => {
     await loadPuzzle(page);
     // Build: 1(0,0)→2(0,1)→3(0,2)
     await dragPath(page, [[0, 0], [0, 1], [0, 2]]);
-    // Redirect from (0,1)=2 toward (1,1): head edge 0,0–0,1 must survive
+    // Redirect from (0,1)=2 toward (1,1): evicts old 3 at (0,2), places new 3 at (1,1)
     await dragPath(page, [[0, 1], [1, 1]]);
-    // Verify: clicking fixed1 clears its connected component (0,1) and (1,1),
-    // proving the 0,0–0,1 edge was preserved (otherwise they'd be isolated and survive)
-    await dragPath(page, [[0, 0]]);
-    await expect(cell(page, 1, 1)).toHaveClass(/cell-empty/);
+    // Head side 0,0→0,1 preserved; old tail 0,2 cleared by eviction; new tail 1,1 filled
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-filled/);
+    await expect(cell(page, 0, 2)).toHaveClass(/cell-empty/);
+    await expect(cell(page, 1, 1)).toHaveClass(/cell-filled/);
   });
 
   // Bug 2: fixed-cell value must not be duplicated on non-fixed cells
@@ -216,20 +216,108 @@ test.describe('merge', () => {
   });
 });
 
+// ─── Value-only semantics ─────────────────────────────────
+test.describe('value-only semantics', () => {
+  test('re-dragging from fixed cell does not cascade into value-adjacent chain', async ({ page }) => {
+    await loadPuzzle(page, MERGE_CSV);
+    // Chain A: 1→2
+    await dragPath(page, [[0, 0], [0, 1]]);
+    // Chain B (desc): 4→3 — (0,1)=2 and (0,2)=3 are adjacent with consecutive values
+    await page.locator('#btn-desc').click();
+    await dragPath(page, [[0, 3], [0, 2]]);
+    // Re-drag from fixed-1 (tap only): must NOT cascade — both chains stay intact
+    await page.locator('#btn-asc').click();
+    await dragPath(page, [[0, 0]]);
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-filled/); // chain A intact
+    await expect(cell(page, 0, 2)).toHaveClass(/cell-filled/); // chain B intact
+  });
+
+  test('erasing a cell creates a value gap, non-adjacent cells survive re-drag', async ({ page }) => {
+    await loadPuzzle(page);
+    // Build: 1(0,0)→2(0,1)→3(0,2)→4(1,2)→5(1,1)
+    await dragPath(page, [[0, 0], [0, 1], [0, 2], [1, 2], [1, 1]]);
+    // Erase value 3 — creates a gap between 2 and 4
+    await page.locator('#btn-erase').click();
+    await cell(page, 0, 2).click();
+    await page.locator('#btn-erase').click();
+    // 3 is gone; 4 and 5 survive disconnected from the fixed anchor
+    await expect(cell(page, 0, 2)).toHaveClass(/cell-empty/);
+    await expect(cell(page, 1, 2)).toHaveClass(/cell-filled/);
+    await expect(cell(page, 1, 1)).toHaveClass(/cell-filled/);
+    // Re-drag from fixed-1 (tap only): no eager clear — 2 stays
+    await dragPath(page, [[0, 0]]);
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-filled/);
+  });
+
+  test('erase mode ignores fixed cells', async ({ page }) => {
+    await loadPuzzle(page);
+    await dragPath(page, [[0, 0], [0, 1]]); // build 1→2
+    await page.locator('#btn-erase').click();
+    await cell(page, 0, 0).click(); // click fixed cell — should be no-op
+    await expect(cell(page, 0, 0)).toHaveClass(/cell-fixed/);
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-filled/); // connection survives
+  });
+});
+
+// ─── Blocked cells ────────────────────────────────────────
+test.describe('blocked cells', () => {
+  // 2×2: fixed 1@(0,0), blocked@(0,1), empty (1,0) and (1,1). totalCells=3.
+  const BLOCKED_CSV = '2,2\n1,X\n0,0';
+
+  test('drag cannot extend into a blocked cell', async ({ page }) => {
+    await loadPuzzle(page, BLOCKED_CSV);
+    await dragPath(page, [[0, 0], [0, 1]]); // (0,1) is blocked
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-blocked/);
+    await expect(page.locator('#progress')).toContainText('1 / 3');
+  });
+
+  test('erase mode ignores blocked cells', async ({ page }) => {
+    await loadPuzzle(page, BLOCKED_CSV);
+    await page.locator('#btn-erase').click();
+    await cell(page, 0, 1).click();
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-blocked/);
+  });
+});
+
+// ─── Messages ─────────────────────────────────────────────
+test.describe('messages', () => {
+  test('clicking empty cell shows prompt', async ({ page }) => {
+    await loadPuzzle(page);
+    await dragPath(page, [[0, 1]]); // empty cell
+    await expect(page.locator('#message')).toContainText('请点击');
+  });
+
+  test('shows message when descending below minimum value 1', async ({ page }) => {
+    await loadPuzzle(page, '1,3\n1,0,0');
+    await page.locator('#btn-desc').click();
+    await dragPath(page, [[0, 0], [0, 1]]); // fixed 1, desc → tries value 0
+    await expect(page.locator('#message')).toContainText('最小值');
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-empty/);
+  });
+
+  test('shows completion message when all cells filled', async ({ page }) => {
+    await loadPuzzle(page, MERGE_CSV); // 4 cells
+    await dragPath(page, [[0, 0], [0, 1], [0, 2], [0, 3]]); // 1→2→3→4
+    await expect(page.locator('#progress')).toContainText('完成');
+  });
+});
+
 // ─── Value eviction ───────────────────────────────────────
 test.describe('value eviction', () => {
-  test('clicking middle cell disconnects successor edge but leaves cells visible', async ({ page }) => {
+  test('re-dragging from fixed cell leaves chain intact; lazy eviction clears on extend', async ({ page }) => {
     await loadPuzzle(page);
     // Build chain: 1(0,0)→2(0,1)→3(0,2)
     await dragPath(page, [[0, 0], [0, 1], [0, 2]]);
-    // Single-click on middle (0,1)=2 in asc: removes edge 2-3, keeps edge 1-2
-    // Cell (0,2)=3 stays visible (lazy eviction — only disconnected, not cleared)
-    await dragPath(page, [[0, 1]]);
-    await expect(cell(page, 0, 2)).toHaveText('3');
-    // Predecessor edge preserved: clicking fixed1 clears its component (cell2), not cell3
+    // Tap fixed-1 without extending: chain stays
     await dragPath(page, [[0, 0]]);
-    await expect(cell(page, 0, 1)).toHaveClass(/cell-empty/); // cell2 cleared (was connected to fixed1)
-    await expect(cell(page, 0, 2)).toHaveText('3');           // cell3 stays (was disconnected)
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-filled/);
+    await expect(cell(page, 0, 2)).toHaveClass(/cell-filled/);
+    // Extend in a new direction: evicts old values lazily as drag reaches them
+    await dragPath(page, [[0, 0], [1, 0], [1, 1]]);
+    await expect(cell(page, 1, 0)).toHaveClass(/cell-filled/); // new 2
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-empty/);  // old 2 evicted
+    await expect(cell(page, 1, 1)).toHaveClass(/cell-filled/); // new 3
+    await expect(cell(page, 0, 2)).toHaveClass(/cell-empty/);  // old 3 evicted
   });
 
   test('new path evicts old cell with same value', async ({ page }) => {

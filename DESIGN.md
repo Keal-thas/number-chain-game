@@ -85,25 +85,21 @@
 ```js
 puzzle = { rows, cols, grid: [[{type:'fixed'|'empty'|'blocked', value}]], totalCells }
 
-chains = [{
-  cells: [[r, c, val], ...],  // 有序格子坐标，值直接存在第三位
-  ascending: bool,             // true=升序
-  unique: bool                 // true=绿色唯一路径
-}]
+// 已提交的图（扁平结构，无链抽象层）
+cellValue[r][c]   // number | null — 非固定格的当前值
+edges             // Set<string>  — 已提交的边，格式 "r1,c1-r2,c2"（小坐标在前）
+lockedCells       // Set<string>  — 唯一模式格，格式 "r,c"
 
 active = {  // 正在拖拽中的路径
   cells: [[r, c, val], ...],
-  step: +1 | -1,          // 每步值的变化方向
-  unique: bool,
-  chainIdx: number,        // -1=新建，>=0=延伸已有链
-  fromStart: bool,         // true=从链头延伸（向前插入）
-  chainToReplace: number,  // 固定格重拖时暂存要删除的链索引
-  mergeChainIdx: number,   // 拖到另一条链端点时，要合并的链索引
-  mergeAtStart: bool,      // 连接到另一条链的起点（true）还是终点（false）
+  step: +1 | -1,   // 每步值的变化方向（由全局 mode 决定）
+  unique: bool,    // 是否为唯一路径（绿色）
 } | null
 ```
 
 **值存储**：值直接存在每个 cell 的第三位 `[r, c, val]`，无需额外计算。
+
+**为什么用显式 edges 而非从值推断连接**：中间解题状态中，值 v 和 v+1 的格子可能相邻但属于不同独立链，用值推断会产生误连，破坏 `clearConnectedPath` 的正确性。
 
 **格子尺寸自适应**：根据 `Math.max(rows, cols)` 动态计算 `CELL`（直径）和 `GAP`（间距），最大区域 520px
 
