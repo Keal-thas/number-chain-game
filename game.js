@@ -156,6 +156,21 @@ function isAdj(r1, c1, r2, c2) {
   return Math.abs(r1 - r2) <= 1 && Math.abs(c1 - c2) <= 1 && (r1 !== r2 || c1 !== c2);
 }
 
+// BFS from (startR,startC) avoiding (avoidR,avoidC); returns true if any fixed cell is reachable
+function reachesFixed(startR, startC, avoidR, avoidC) {
+  const visited = new Set([`${avoidR},${avoidC}`, `${startR},${startC}`]);
+  const queue = [[startR, startC]];
+  while (queue.length) {
+    const [r, c] = queue.shift();
+    if (puzzle.grid[r][c].type === 'fixed') return true;
+    for (const [nr, nc] of getNeighbors(r, c)) {
+      const key = `${nr},${nc}`;
+      if (!visited.has(key)) { visited.add(key); queue.push([nr, nc]); }
+    }
+  }
+  return false;
+}
+
 // Remove a non-fixed cell from the graph (clear value + all its edges)
 function evictPosition(r, c) {
   if (puzzle.grid[r][c].type === 'fixed') return;
@@ -338,21 +353,31 @@ function startDrag(r, c) {
     dragging = true; showMsg(''); render(); return;
   }
 
-  // Non-fixed endpoint (0 or 1 neighbor): extend
+  // Non-fixed endpoint (0 or 1 neighbor): extend using current mode direction
   if (nbrs.length <= 1) {
-    let step;
-    if (nbrs.length === 0) {
-      step = mode === 'asc' ? 1 : -1;
-    } else {
-      const [nr, nc] = nbrs[0];
-      step = myVal > getEffectiveValue(nr, nc) ? 1 : -1;
-    }
+    const step = mode === 'asc' ? 1 : -1;
     active = { cells: [[r, c, myVal]], step, unique: lockedCells.has(`${r},${c}`) };
     dragging = true; showMsg(''); render(); return;
   }
 
-  // Non-fixed middle cell (2+ neighbors): extract from graph, start new chain
-  evictPosition(r, c);
+  // Non-fixed middle cell (2+ neighbors): keep head-side edges, clear tail side
+  {
+    const nbrsList = [...getNeighbors(r, c)];
+    const headNbrs = nbrsList.filter(([nr, nc]) => reachesFixed(nr, nc, r, c));
+    const tailNbrs = nbrsList.filter(([nr, nc]) => !reachesFixed(nr, nc, r, c));
+    let toClear;
+    if (headNbrs.length > 0 && tailNbrs.length > 0) {
+      toClear = tailNbrs;
+    } else {
+      // Ambiguous: use mode to pick successor side
+      const predVal = myVal - (mode === 'asc' ? 1 : -1);
+      toClear = nbrsList.filter(([nr, nc]) => getEffectiveValue(nr, nc) !== predVal);
+    }
+    for (const [nr, nc] of toClear) {
+      removeEdge(r, c, nr, nc);
+      if (puzzle.grid[nr][nc].type !== 'fixed') clearConnectedPath(nr, nc);
+    }
+  }
   active = { cells: [[r, c, myVal]], step: mode === 'asc' ? 1 : -1, unique: uniqMode };
   dragging = true; showMsg(''); render();
 }
@@ -382,6 +407,18 @@ function extendDrag(r, c) {
   if (base.type === 'fixed' && base.value !== expectedVal) {
     showMsg(`值不匹配：期望 ${expectedVal}，该格为 ${base.value}`);
     return;
+  }
+
+  // Reject if a fixed cell (other than the target) already holds expectedVal
+  for (let fr = 0; fr < puzzle.rows; fr++) {
+    for (let fc = 0; fc < puzzle.cols; fc++) {
+      if (puzzle.grid[fr][fc].type === 'fixed' &&
+          puzzle.grid[fr][fc].value === expectedVal &&
+          !(fr === r && fc === c)) {
+        showMsg(`值 ${expectedVal} 已被固定格占用`);
+        return;
+      }
+    }
   }
 
   evictValue(expectedVal);
