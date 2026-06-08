@@ -147,6 +147,59 @@ test.describe('reset', () => {
   });
 });
 
+// ─── Bug regression ───────────────────────────────────────
+test.describe('bug regression', () => {
+  // Bug 1: middle-cell drag must preserve the head-side edge
+  test('Bug1: dragging from middle cell preserves head-side connection', async ({ page }) => {
+    await loadPuzzle(page);
+    // Build: 1(0,0)→2(0,1)→3(0,2)
+    await dragPath(page, [[0, 0], [0, 1], [0, 2]]);
+    // Redirect from (0,1)=2 toward (1,1): head edge 0,0–0,1 must survive
+    await dragPath(page, [[0, 1], [1, 1]]);
+    // Verify: clicking fixed1 clears its connected component (0,1) and (1,1),
+    // proving the 0,0–0,1 edge was preserved (otherwise they'd be isolated and survive)
+    await dragPath(page, [[0, 0]]);
+    await expect(cell(page, 1, 1)).toHaveClass(/cell-empty/);
+  });
+
+  // Bug 2: fixed-cell value must not be duplicated on non-fixed cells
+  test('Bug2: cannot place a value already occupied by a fixed cell', async ({ page }) => {
+    // 2x3, fixed 1 at (0,0), fixed 3 at (1,2)
+    await loadPuzzle(page, '2,3\n1,0,0\n0,0,3');
+    // Drag 1→2→try 3 at non-fixed cell (0,2); fixed 3 is at (1,2)
+    await dragPath(page, [[0, 0], [0, 1], [0, 2]]);
+    await expect(page.locator('#message')).toContainText('已被固定格占用');
+    await expect(cell(page, 0, 2)).toHaveClass(/cell-empty/);
+  });
+
+  // Bug 3: endpoint drag direction must follow current mode, not inferred chain direction
+  test('Bug3: switching to desc then dragging endpoint yields desc step', async ({ page }) => {
+    await loadPuzzle(page);
+    // Build asc: 1(0,0)→2(0,1)→3(0,2)
+    await dragPath(page, [[0, 0], [0, 1], [0, 2]]);
+    // Switch to desc, drag from endpoint (0,2)=3; next should be 2 (desc step), not 4 (asc)
+    await page.locator('#btn-desc').click();
+    await dragPath(page, [[0, 2], [1, 2]]);
+    await expect(cell(page, 1, 2)).toHaveText('2');
+  });
+
+  // Bug 4: desc-mode middle-cell drag must preserve the higher-value (successor) side
+  test('Bug4: middle-cell drag in desc mode preserves the successor side', async ({ page }) => {
+    await loadPuzzle(page);
+    // Build asc: 1(0,0)→2(0,1)→3(0,2)→4(1,2)→5(1,1)→6(1,0)
+    await dragPath(page, [[0, 0], [0, 1], [0, 2], [1, 2], [1, 1], [1, 0]]);
+    // Switch to desc, single-click on (1,2)=4 (middle, neighbors: (0,2)=3 and (1,1)=5)
+    // predVal in desc = 4+1=5 → keep val=5 side, clear val=3 side
+    await page.locator('#btn-desc').click();
+    await dragPath(page, [[1, 2]]);
+    // Successor side (5 and 6) must survive
+    await expect(cell(page, 1, 1)).toHaveText('5');
+    await expect(cell(page, 1, 0)).toHaveText('6');
+    // Predecessor side (3 and below) must be cleared
+    await expect(cell(page, 0, 2)).toHaveClass(/cell-empty/);
+  });
+});
+
 // ─── Merge / eviction ─────────────────────────────────────
 test.describe('merge', () => {
   test('extending into adjacent chain endpoint evicts it and reaches 100%', async ({ page }) => {
@@ -165,19 +218,16 @@ test.describe('merge', () => {
 
 // ─── Value eviction ───────────────────────────────────────
 test.describe('value eviction', () => {
-  test('dragging from middle cell splits chain: after-fragment stays', async ({ page }) => {
+  test('clicking middle cell in asc mode clears the forward fragment', async ({ page }) => {
     await loadPuzzle(page);
     // Build chain: 1(0,0)→2(0,1)→3(0,2)
     await dragPath(page, [[0, 0], [0, 1], [0, 2]]);
-    // Single-click on middle cell (0,1)=2: splits into [1] and [3], active cell not saved
+    // Single-click on middle (0,1)=2 in asc: predVal=1, clears val=3 side immediately
     await dragPath(page, [[0, 1]]);
-    // After-fragment [3 at (0,2)] must still be filled
-    await expect(cell(page, 0, 2)).toHaveClass(/cell-filled/);
-    await expect(cell(page, 0, 2)).toHaveText('3');
-    // Before-fragment [1 at (0,0)] is fixed, still shows
+    // Forward cell (0,2)=3 is now cleared (eager forward-clear)
+    await expect(cell(page, 0, 2)).toHaveClass(/cell-empty/);
+    // Head (fixed 1) still shows
     await expect(cell(page, 0, 0)).toHaveText('1');
-    // Middle cell (0,1) is no longer in any chain
-    await expect(cell(page, 0, 1)).toHaveClass(/cell-empty/);
   });
 
   test('new path evicts old cell with same value', async ({ page }) => {
@@ -191,32 +241,28 @@ test.describe('value eviction', () => {
     await expect(cell(page, 1, 1)).toHaveText('3');
   });
 
-  test('eviction of middle cell in after-fragment splits it', async ({ page }) => {
+  test('dragging from middle cell clears entire forward chain then places new values', async ({ page }) => {
     await loadPuzzle(page);
     // Build chain: 1(0,0)→2(0,1)→3(0,2)→4(1,2)→5(1,1)
     await dragPath(page, [[0, 0], [0, 1], [0, 2], [1, 2], [1, 1]]);
-    // Click middle (0,1)=2: splits into before=[1], after=[3,4,5], active at 2
-    // Drag from (0,1) → (1,0) generates val=3 → evicts 3 at (0,2) from after-fragment
-    // after-fragment becomes [4(1,2), 5(1,1)] — split further? no, (0,2) was first cell
+    // Drag from (0,1)=2 to (1,0): asc predVal=1, so entire forward chain [3,4,5] cleared upfront
     await dragPath(page, [[0, 1], [1, 0]]);
-    // (0,2) was evicted (first of after-fragment) → after-fragment becomes [4,5]
     await expect(cell(page, 0, 2)).toHaveClass(/cell-empty/);
-    // (1,2)=4 and (1,1)=5 survive as the remaining after-fragment
-    await expect(cell(page, 1, 2)).toHaveText('4');
-    await expect(cell(page, 1, 1)).toHaveText('5');
+    await expect(cell(page, 1, 2)).toHaveClass(/cell-empty/);
+    await expect(cell(page, 1, 1)).toHaveClass(/cell-empty/);
+    // New chain places 3 at (1,0)
+    await expect(cell(page, 1, 0)).toHaveText('3');
   });
 
   test('old value 6 stays when new chain only reaches 5', async ({ page }) => {
     await loadPuzzle(page);
     // Build: 1(0,0)→2(0,1)→3(0,2)→4(1,2)→5(1,1)→6(1,0)
     await dragPath(page, [[0, 0], [0, 1], [0, 2], [1, 2], [1, 1], [1, 0]]);
-    // From middle (0,1)=2, drag new path generating 3,4,5 only
-    // New path: (0,1)→(1,1)? No, (1,1) will be in after-fragment with val=5
-    // Use: (0,1)→(2,1)? (2,1) val=3, (2,0)=4, but need to avoid conflicting fixed 9
-    // Simpler: drag (0,1)→(1,1) evicts old 5, then release — old 6 at (1,0) stays
+    // Drag from (0,1)=2 to (1,1): asc predVal=1, forward chain [3,4,5,6] all cleared upfront
     await dragPath(page, [[0, 1], [1, 1]]);
-    // (1,0)=6 was not reached by new chain → not evicted
-    await expect(cell(page, 1, 0)).toHaveText('6');
-    await expect(cell(page, 1, 0)).toHaveClass(/cell-filled/);
+    // (1,0)=6 was in the forward chain → cleared even though drag didn't reach it
+    await expect(cell(page, 1, 0)).toHaveClass(/cell-empty/);
+    // New value 3 is placed at (1,1)
+    await expect(cell(page, 1, 1)).toHaveText('3');
   });
 });
