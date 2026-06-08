@@ -127,6 +127,32 @@ test.describe('lock mode', () => {
     await dragPath(page, [[0, 0], [0, 1]]);
     await expect(cell(page, 0, 1)).toHaveClass(/cell-locked/);
   });
+
+  test('drag cannot overwrite a locked cell', async ({ page }) => {
+    await loadPuzzle(page);
+    // Draw locked chain: (0,0)=1 → (0,1)=2
+    await page.locator('#btn-lock').click();
+    await dragPath(page, [[0, 0], [0, 1]]);
+    await page.locator('#btn-lock').click(); // turn off lock mode
+
+    // Try to overwrite (0,1) with a new drag from fixed cell (2,2)=9 descending
+    await page.locator('#btn-desc').click();
+    await dragPath(page, [[2, 2], [2, 1], [1, 1], [1, 0], [0, 0]]);
+    // (0,1) holds value 2 and is locked — drag reaching value 2 should be blocked
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-locked/);
+  });
+
+  test('drag can overwrite a normal (non-locked) cell', async ({ page }) => {
+    await loadPuzzle(page);
+    // Draw normal chain: (0,0)=1 → (0,1)=2 → (0,2)=3
+    await dragPath(page, [[0, 0], [0, 1], [0, 2]]);
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-filled/);
+
+    // New drag from (0,0) going different direction overwrites (0,1)
+    await dragPath(page, [[0, 0], [1, 0], [1, 1]]);
+    // (0,1) should now be empty (evicted) since it held value 2 which was re-used
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-empty/);
+  });
 });
 
 // ─── Reset ────────────────────────────────────────────────

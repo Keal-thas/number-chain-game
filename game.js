@@ -386,6 +386,13 @@ function extendDrag(r, c) {
     }
   }
 
+  // Locked cells cannot be overwritten by drag
+  for (let fr = 0; fr < puzzle.rows; fr++)
+    for (let fc = 0; fc < puzzle.cols; fc++)
+      if (cellValue[fr][fc] === expectedVal && lockedCells.has(`${fr},${fc}`))
+        { showMsg('不能覆盖锁定路径'); return; }
+  if (lockedCells.has(`${r},${c}`)) { showMsg('不能覆盖锁定路径'); return; }
+
   evictValue(expectedVal);
   evictPosition(r, c);
   cells.push([r, c, expectedVal]);
