@@ -85,9 +85,8 @@
 ```js
 puzzle = { rows, cols, grid: [[{type:'fixed'|'empty'|'blocked', value}]], totalCells }
 
-// 已提交的图（扁平结构，无链抽象层）
+// 已提交的图（扁平结构，无链抽象层，无显式边）
 cellValue[r][c]   // number | null — 非固定格的当前值
-edges             // Set<string>  — 已提交的边，格式 "r1,c1-r2,c2"（小坐标在前）
 lockedCells       // Set<string>  — 唯一模式格，格式 "r,c"
 
 active = {  // 正在拖拽中的路径
@@ -97,9 +96,7 @@ active = {  // 正在拖拽中的路径
 } | null
 ```
 
-**值存储**：值直接存在每个 cell 的第三位 `[r, c, val]`，无需额外计算。
-
-**为什么用显式 edges 而非从值推断连接**：中间解题状态中，值 v 和 v+1 的格子可能相邻但属于不同独立链，用值推断会产生误连，破坏 `clearConnectedPath` 的正确性。
+**连通性由值推断**：两格相连 = 相邻（8方向）且值差恰好为 1，不存储显式边。
 
 **格子尺寸自适应**：根据 `Math.max(rows, cols)` 动态计算 `CELL`（直径）和 `GAP`（间距），最大区域 520px
 

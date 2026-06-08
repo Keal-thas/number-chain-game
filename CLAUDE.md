@@ -15,8 +15,10 @@ Claude Preview 已配置，`preview_start("number-chain-game")` 启动，port 80
 ```
 index.html   — HTML 标记（~40 行）
 style.css    — 全部样式
-game.js      — 全部游戏逻辑（~515 行）
+game.js      — 全部游戏逻辑（~460 行）
 DESIGN.md    — 游戏设计文档
+ANALYSIS.md  — 代码实际行为分析（含已知问题）
+TESTING.md   — 测试文档
 memory/      — Claude 记忆文件（已加入 .gitignore）
 ```
 
@@ -30,30 +32,26 @@ memory/      — Claude 记忆文件（已加入 .gitignore）
 // 谜题（只读，加载时解析 CSV）
 puzzle = { rows, cols, grid: [[{type:'fixed'|'empty'|'blocked', value}]], totalCells }
 
-// 已完成的链
-chains = [{ cells: [[r, c, val], ...], ascending: bool, unique: bool }]
+// 已提交的图（扁平，无链抽象层）
+cellValue[r][c]   // number | null — 非固定格的当前值
+lockedCells       // Set<string>  — 唯一模式格，格式 "r,c"
 
-// 拖拽中的临时链
+// 拖拽中的临时路径
 active = {
   cells: [[r, c, val], ...],
-  step: +1 | -1,          // 每步值的变化方向
+  step: +1 | -1,   // 每步值的变化方向（由全局 mode 决定）
   unique: bool,
-  chainIdx: number,        // 要延伸的链索引，-1 表示新链
-  fromStart: bool,         // 是否从链的起点向前延伸
-  chainToReplace: number,  // 固定格重拖时暂存要删除的链索引
-  mergeChainIdx: number,   // 拖到另一条链端点时，要合并的链索引
-  mergeAtStart: bool,      // 连接到另一条链的起点（true）还是终点（false）
 } | null
 ```
 
-值直接存在每个 cell 的第三位 `[r, c, val]`，无需额外计算。
+**连通性由值推断**：两格相连 = 相邻（8方向）且值差恰好为 1，不存储显式边。
 
 ## startDrag 的 Case 结构
 
-1. **Case 1** — 是某条链的端点（first 或 last）→ 延伸；固定格则用当前 mode 清链重画
-2. **Case 2** — 固定格且不在任何链中 → 开新链
-3. **Case 3** — 在链的中间 → trim 到该点，从该点继续
-4. 都不匹配 → 提示"请点击固定数字格或路径端点"
+1. **Case 1** — 固定格 → 直接以该格为起点创建 active，**不预清除任何格子**；旧值由拖拽过程中的懒驱逐按需清除
+2. **Case 2** — 非固定端点（邻居 ≤ 1） → 以此格为起点延伸，unique 继承该格锁定状态
+3. **Case 3** — 非固定中间格（邻居 ≥ 2） → 以此格为起点，后继侧懒驱逐
+4. 都不匹配（空白格）→ 提示"请点击固定数字格或路径端点"
 
 ## 关键实现约定
 
@@ -69,4 +67,4 @@ active = {
 - 谜题自动生成
 - 存档持久化
 - 唯一解校验
-- 自动化测试（方案已讨论，等用户指示）
+- 完成判定的路径有效性校验（单一连通链 1→N）
