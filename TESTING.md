@@ -1,4 +1,4 @@
-# 测试文档
+# Number Chain — 测试文档
 
 ## 运行方式
 
@@ -71,11 +71,11 @@ npm run test:ui                  # 可视化界面（可单步调试）
 | 10 | removes endpoint cell | 擦除链末端格，该格变 `cell-empty`，其余保留 |
 | 11 | splits chain at middle cell | 擦除链中间格，该格变空，两侧各自保留为 `cell-filled` |
 
-### unique path
+### lock mode
 
 | # | 用例名 | 验证内容 |
 |---|--------|---------|
-| 12 | marks chain with unique class when mode is on | 开启唯一路径后画线，格子 class 含 `cell-unique` |
+| 12 | marks chain with locked class when mode is on | 开启锁定模式后画线，格子 class 含 `cell-locked` |
 
 ### reset
 

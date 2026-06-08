@@ -119,13 +119,13 @@ test.describe('erase', () => {
   });
 });
 
-// ─── Unique path ──────────────────────────────────────────
-test.describe('unique path', () => {
-  test('marks chain with unique class when mode is on', async ({ page }) => {
+// ─── Lock mode ────────────────────────────────────────────
+test.describe('lock mode', () => {
+  test('marks chain with locked class when mode is on', async ({ page }) => {
     await loadPuzzle(page);
-    await page.locator('#btn-unique').click();
+    await page.locator('#btn-lock').click();
     await dragPath(page, [[0, 0], [0, 1]]);
-    await expect(cell(page, 0, 1)).toHaveClass(/cell-unique/);
+    await expect(cell(page, 0, 1)).toHaveClass(/cell-locked/);
   });
 });
 

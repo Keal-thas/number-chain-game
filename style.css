@@ -75,8 +75,8 @@ textarea:focus { border-color: #e8c468; }
 .btn-load   { background: #e8c468; color: #1a1a2e; }
 .btn-mode   { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
 .btn-mode.active { background: #2a4a8a; color: #7aadff; border-color: #3a5aaa; }
-.btn-unique { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
-.btn-unique.active { background: #1a5a3a; color: #4cef92; border-color: #2a7a52; }
+.btn-lock { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
+.btn-lock.active { background: #1a5a3a; color: #4cef92; border-color: #2a7a52; }
 .btn-erase  { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
 .btn-erase.active { background: #5a2020; color: #ff8888; border-color: #7a3030; }
 .btn-reset  { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
@@ -165,7 +165,7 @@ textarea:focus { border-color: #e8c468; }
   color: #7ab8ff;
   border: 2px solid #2a5aaa;
 }
-.cell-unique  {
+.cell-locked  {
   background: #0d3a22;
   color: #4cef92;
   border: 2px solid #1a7a42;

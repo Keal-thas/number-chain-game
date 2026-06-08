@@ -9,10 +9,10 @@
 ```
 puzzle          {rows, cols, grid[][], totalCells}     谜题，只读
 cellValue[r][c]   number | null                         非固定格的当前值
-lockedCells     Set<string>                             唯一模式格，格式 "r,c"
-active          {cells:[[r,c,val],...], step:±1, unique:bool} | null  拖拽中的临时路径
+lockedCells     Set<string>                             锁定格，格式 "r,c"
+active          {cells:[[r,c,val],...], step:±1, lock:bool} | null  拖拽中的临时路径
 mode            'asc' | 'desc'                          全局模式
-uniqMode        bool                                    全局唯一开关
+lockMode        bool                                    全局锁定开关
 eraseMode       bool                                    全局擦除开关
 ```
 
@@ -41,8 +41,8 @@ eraseMode       bool                                    全局擦除开关
 | Case 0 | eraseMode | 转交 handleEraseClick |
 | Case 0 | myVal === null（空白格无值） | 报错 "请点击固定数字格或路径端点" |
 | **Case 1** | 固定格 | 直接以该格为起点创建 active，step 取全局 mode；**不预清除任何格子** |
-| **Case 2** | 非固定端点（邻居 ≤ 1） | 直接以此格为起点新建 active，step 取全局 mode，unique 取该格锁定状态 |
-| **Case 3** | 非固定中间格（邻居 ≥ 2） | 以此格为起点新建 active，step 取全局 mode，unique 取全局 uniqMode |
+| **Case 2** | 非固定端点（邻居 ≤ 1） | 直接以此格为起点新建 active，step 取全局 mode，lock 取该格锁定状态 |
+| **Case 3** | 非固定中间格（邻居 ≥ 2） | 以此格为起点新建 active，step 取全局 mode，lock 取全局 lockMode |
 
 **Case 1 关键点**：固定格起拖不做任何预清除。升序侧和降序侧的旧值均通过拖拽过程中的懒驱逐（`evictValue`）按需清除。这允许固定格同时保留两侧的链，互不干扰。
 
@@ -97,7 +97,7 @@ SVG 连线由 `renderSVG` 遍历所有格子绘制：对每个有值的格 (r,c)
 | cell-fixed | 固定格，金黄 |
 | cell-blocked | 封锁格，深灰 |
 | cell-filled | 已提交路径格，深蓝 |
-| cell-unique | 唯一路径格，深绿 |
+| cell-locked | 锁定格，深绿 |
 | cell-active | 拖拽中，亮蓝 + scale(1.08) |
 | cell-active-fixed | 固定格被拖拽，金黄 + scale(1.08) |
 
@@ -111,7 +111,7 @@ SVG 连线由 `renderSVG` 遍历所有格子绘制：对每个有值的格 (r,c)
 | 按钮 | 作用 |
 |------|------|
 | ▲ 升序 / ▼ 降序 | 设全局 `mode`，影响所有新拖拽的 step |
-| 唯一路径 | 切换 `uniqMode` |
+| 锁定模式 | 切换 `lockMode` |
 | 擦除 | 切换 `eraseMode` |
 | 重置全部 | 清空所有 cellValue / lockedCells，关闭擦除模式 |
 
@@ -134,7 +134,7 @@ filled === totalCells // → 显示 "🎉 完成！"
 | loading | 3 | 格子数量、固定格显示、初始进度 |
 | drag | 6 | 升序建链、进度更新、回拖、延伸端点、降序建链、值不匹配 |
 | erase | 2 | 删端点、拆中间格 |
-| unique path | 1 | 唯一路径标记 |
+| lock mode | 1 | 锁定模式标记 |
 | reset | 2 | 清空、进度恢复 |
 | merge | 1 | 两链端点值相邻时覆盖达 100% |
 | value eviction | 4 | 懒驱逐行为（含固定格重拖保留旧链） |
@@ -155,14 +155,14 @@ filled === totalCells // → 显示 "🎉 完成！"
 
 ---
 
-### P3：唯一模式在 Case 2 端点延伸时被忽略
+### P3：锁定模式在 Case 2 端点延伸时被忽略
 
 **现状**：
 ```js
 // Case 2（端点延伸）取格子的锁定状态，而非全局开关
-active = { ..., unique: lockedCells.has(`${r},${c}`) };
+active = { ..., lock: lockedCells.has(`${r},${c}`) };
 ```
-**问题**：打开唯一路径开关后，从普通端点延伸，新段不会标绿。
+**问题**：打开锁定模式开关后，从普通端点延伸，新段不会标绿。
 
 ---
 

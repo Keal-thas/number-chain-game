@@ -11,10 +11,10 @@ let GAP  = 28;
 // ─── State ───────────────────────────────────────────────
 let puzzle      = null;        // {rows, cols, grid: [{type,value}][]}
 let cellValue   = [];          // [r][c] = number | null  (fixed cells excluded)
-let lockedCells = new Set();   // "r,c" keys — unique/locked cells
-let active      = null;        // drag in progress: {cells:[[r,c,val],...], step:±1, unique}
+let lockedCells = new Set();   // "r,c" keys — locked cells
+let active      = null;        // drag in progress: {cells:[[r,c,val],...], step:±1, lock}
 let mode        = 'asc';
-let uniqMode    = false;
+let lockMode    = false;
 let eraseMode   = false;
 let dragging    = false;
 let totalCells  = 0;
@@ -86,11 +86,11 @@ function setMode(m) {
   document.getElementById('btn-desc').classList.toggle('active', m === 'desc');
 }
 
-function toggleUnique() {
-  uniqMode = !uniqMode;
-  const b = document.getElementById('btn-unique');
-  b.textContent = `唯一路径: ${uniqMode ? '开' : '关'}`;
-  b.classList.toggle('active', uniqMode);
+function toggleLock() {
+  lockMode = !lockMode;
+  const b = document.getElementById('btn-lock');
+  b.textContent = `锁定模式: ${lockMode ? '开' : '关'}`;
+  b.classList.toggle('active', lockMode);
 }
 
 function toggleErase() {
@@ -196,7 +196,7 @@ function getCellClass(r, c) {
   if (base.type === 'fixed')   return inActive(r, c) ? 'cell-fixed cell-active-fixed' : 'cell-fixed';
   if (inActive(r, c))          return 'cell-active';
   if (cellValue[r][c] !== null)
-    return lockedCells.has(`${r},${c}`) ? 'cell-unique' : 'cell-filled';
+    return lockedCells.has(`${r},${c}`) ? 'cell-locked' : 'cell-filled';
   return 'cell-empty';
 }
 
@@ -331,19 +331,19 @@ function startDrag(r, c) {
 
   // Fixed cell: start drag; opposite-direction side untouched, same-direction evicted lazily
   if (base.type === 'fixed') {
-    active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1, unique: uniqMode };
+    active = { cells: [[r, c, base.value]], step: mode === 'asc' ? 1 : -1, lock: lockMode };
     dragging = true; showMsg(''); render(); return;
   }
 
   // Non-fixed endpoint (0 or 1 neighbor): extend using current mode direction
   if (nbrs.length <= 1) {
     const step = mode === 'asc' ? 1 : -1;
-    active = { cells: [[r, c, myVal]], step, unique: lockedCells.has(`${r},${c}`) };
+    active = { cells: [[r, c, myVal]], step, lock: lockedCells.has(`${r},${c}`) };
     dragging = true; showMsg(''); render(); return;
   }
 
   // Non-fixed middle cell (2+ neighbors): start drag from here; successor side evicted lazily
-  active = { cells: [[r, c, myVal]], step: mode === 'asc' ? 1 : -1, unique: uniqMode };
+  active = { cells: [[r, c, myVal]], step: mode === 'asc' ? 1 : -1, lock: lockMode };
   dragging = true; showMsg(''); render();
 }
 
@@ -399,7 +399,7 @@ function endDrag() {
   if (active.cells.length >= 2) {
     for (const [r, c, val] of active.cells) {
       if (puzzle.grid[r][c].type !== 'fixed') cellValue[r][c] = val;
-      if (active.unique) lockedCells.add(`${r},${c}`);
+      if (active.lock) lockedCells.add(`${r},${c}`);
     }
   }
 
