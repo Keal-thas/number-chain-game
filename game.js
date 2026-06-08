@@ -464,3 +464,9 @@ gameArea.addEventListener('selectstart', e => e.preventDefault());
 document.addEventListener('selectstart', e => {
   if (!e.target.closest('#setup')) e.preventDefault();
 });
+
+// Auto-load puzzle from ?csv= URL param (generator integration)
+(function () {
+  const csv = new URLSearchParams(location.search).get('csv');
+  if (csv) { document.getElementById('csv-input').value = csv; loadPuzzle(); }
+})();

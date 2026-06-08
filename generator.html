@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Number Chain — 谜题生成器</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #1a1a2e;
+  color: #e0e0e0;
+  min-height: 100vh;
+  padding: 28px 16px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+h1 {
+  font-size: 1.3rem;
+  font-weight: 600;
+  color: #e8c468;
+  letter-spacing: 0.03em;
+}
+
+/* ─── 参数表单 ─────────────────────────── */
+#params-panel {
+  background: #16213e;
+  border: 1px solid #2a3a5e;
+  border-radius: 10px;
+  padding: 20px 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  align-items: flex-end;
+  justify-content: center;
+  max-width: 520px;
+  width: 100%;
+}
+
+.param-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 80px;
+}
+
+.param-group label {
+  font-size: 0.78rem;
+  color: #99aabb;
+}
+
+.param-group input {
+  width: 80px;
+  padding: 7px 10px;
+  text-align: center;
+  background: #0d1b3e;
+  border: 1px solid #3a4e7a;
+  border-radius: 6px;
+  color: #d0e0f0;
+  font-size: 1rem;
+}
+
+.param-group input:focus {
+  outline: none;
+  border-color: #e8c468;
+}
+
+.param-hint {
+  font-size: 0.72rem;
+  color: #4a6a8a;
+  margin-top: 2px;
+}
+
+/* ─── 按钮 ────────────────────────────── */
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 500;
+  transition: opacity 0.15s;
+}
+.btn:hover  { opacity: 0.85; }
+.btn:active { opacity: 0.65; }
+
+.btn-generate { background: #e8c468; color: #1a1a2e; font-size: 0.95rem; padding: 9px 22px; }
+.btn-regen    { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
+.btn-solution { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
+.btn-copy     { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
+.btn-open     { background: #2a4a8a; color: #7aadff; border: 1px solid #3a5aaa; }
+
+/* ─── 消息 ────────────────────────────── */
+#message {
+  min-height: 1.3em;
+  font-size: 0.85rem;
+  color: #e8a468;
+}
+#message.ok { color: #6fcf97; }
+
+/* ─── 结果区域 ───────────────────────── */
+#result {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  max-width: 520px;
+}
+
+/* ─── 预览网格 ───────────────────────── */
+#preview {
+  display: inline-grid;
+  gap: 5px;
+  padding: 14px;
+  background: #0d1220;
+  border: 1px solid #2a3a5e;
+  border-radius: 10px;
+}
+
+.g-cell {
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  user-select: none;
+}
+
+.g-empty   { background: #1a1a2e; border: 2px solid #3a3a5a; }
+.g-fixed   { background: #e8c468; color: #1a1a2e; border: 2px solid #b89030; }
+.g-blocked { background: #222;    border: 2px solid #333; }
+.g-path    { background: #1e3a6e; color: #7ab8ff; border: 2px solid #2a5aaa; }
+
+/* ─── 操作按钮行 ─────────────────────── */
+#actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+/* ─── CSV 文本框 ─────────────────────── */
+#csv-area {
+  width: 100%;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 0.78rem;
+  background: #0d1b3e;
+  border: 1px solid #2a3a5e;
+  border-radius: 6px;
+  color: #8899bb;
+  padding: 10px 12px;
+  resize: vertical;
+  min-height: 70px;
+}
+
+/* ─── 返回链接 ───────────────────────── */
+#back-link {
+  color: #4a6a8a;
+  text-decoration: none;
+  font-size: 0.82rem;
+  margin-top: 4px;
+}
+#back-link:hover { color: #99aabb; }
+</style>
+</head>
+<body>
+
+<h1>Number Chain — 谜题生成器</h1>
+
+<div id="params-panel">
+  <div class="param-group">
+    <label>行数</label>
+    <input type="number" id="p-rows" value="5" min="2" max="12">
+    <span class="param-hint">2 – 12</span>
+  </div>
+  <div class="param-group">
+    <label>列数</label>
+    <input type="number" id="p-cols" value="5" min="2" max="12">
+    <span class="param-hint">2 – 12</span>
+  </div>
+  <div class="param-group">
+    <label>Blocked 格</label>
+    <input type="number" id="p-blocked" value="0" min="0">
+    <span class="param-hint">不可填写，随机放置</span>
+  </div>
+  <div class="param-group">
+    <label>固定格数量</label>
+    <input type="number" id="p-fixed" value="4" min="2">
+    <span class="param-hint">含起终点</span>
+  </div>
+  <button class="btn btn-generate" onclick="onGenerate()">生成谜题</button>
+</div>
+
+<div id="message"></div>
+
+<div id="result">
+  <div id="preview"></div>
+
+  <div id="actions">
+    <button class="btn btn-regen"    onclick="onGenerate()">重新生成</button>
+    <button class="btn btn-solution" id="btn-solution" onclick="toggleSolution()">显示解答</button>
+    <button class="btn btn-copy"     onclick="copyCSV()">复制 CSV</button>
+    <button class="btn btn-open"     onclick="openInGame()">在游戏中打开 →</button>
+  </div>
+
+  <textarea id="csv-area" readonly></textarea>
+</div>
+
+<a id="back-link" href="index.html">← 返回游戏</a>
+
+<script src="generator.js"></script>
+<script>
+let currentResult = null;
+let showSolution  = false;
+
+function getParams() {
+  const rows         = Math.max(2, Math.min(12, parseInt(document.getElementById('p-rows').value)    || 5));
+  const cols         = Math.max(2, Math.min(12, parseInt(document.getElementById('p-cols').value)    || 5));
+  const blockedCount = Math.max(0,              parseInt(document.getElementById('p-blocked').value) || 0);
+  const fixedCount   = Math.max(2,              parseInt(document.getElementById('p-fixed').value)   || 4);
+  return { rows, cols, blockedCount, fixedCount };
+}
+
+function showMsg(text, ok = false) {
+  const el = document.getElementById('message');
+  el.textContent = text;
+  el.className = ok ? 'ok' : '';
+}
+
+function onGenerate() {
+  showMsg('');
+  showSolution = false;
+  document.getElementById('btn-solution').textContent = '显示解答';
+
+  const result = generatePuzzle(getParams());
+  if (result.error) {
+    showMsg(result.error);
+    document.getElementById('result').style.display = 'none';
+    return;
+  }
+
+  currentResult = result;
+  document.getElementById('result').style.display = 'flex';
+  document.getElementById('csv-area').value = result.csv;
+  renderPreview();
+  showMsg(`${result.rows}×${result.cols} 谜题，共 ${result.path.length} 格`, true);
+}
+
+function renderPreview() {
+  if (!currentResult) return;
+  const { path, blocked, csv, rows, cols } = currentResult;
+  const preview = document.getElementById('preview');
+
+  // 计算格子大小（最大 44px，随棋盘缩放）
+  const maxCols = Math.max(rows, cols);
+  const cellSize = Math.max(28, Math.min(44, Math.floor(360 / maxCols)));
+  const fontSize = Math.max(10, Math.floor(cellSize * 0.38));
+  preview.style.gridTemplateColumns = `repeat(${cols}, ${cellSize}px)`;
+
+  // 解析 CSV 中的固定格
+  const fixedVals = new Map();
+  const csvLines = csv.split('\n').slice(1);
+  for (let r = 0; r < rows; r++) {
+    const parts = (csvLines[r] || '').split(',');
+    for (let c = 0; c < cols; c++) {
+      const v = (parts[c] || '').trim();
+      if (v && v !== '0' && v !== 'X') fixedVals.set(gKey(r, c), v);
+    }
+  }
+
+  // 路径全值（用于解答显示）
+  const pathVals = new Map();
+  path.forEach(([r, c], i) => pathVals.set(gKey(r, c), i + 1));
+
+  preview.innerHTML = '';
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const div = document.createElement('div');
+      div.className = 'g-cell';
+      div.style.width  = `${cellSize}px`;
+      div.style.height = `${cellSize}px`;
+      div.style.fontSize = `${fontSize}px`;
+
+      const k = gKey(r, c);
+      if (blocked.has(k)) {
+        div.classList.add('g-blocked');
+      } else if (fixedVals.has(k)) {
+        div.classList.add('g-fixed');
+        div.textContent = fixedVals.get(k);
+      } else if (showSolution) {
+        div.classList.add('g-path');
+        div.textContent = pathVals.get(k) ?? '';
+      } else {
+        div.classList.add('g-empty');
+      }
+      preview.appendChild(div);
+    }
+  }
+}
+
+function toggleSolution() {
+  showSolution = !showSolution;
+  document.getElementById('btn-solution').textContent = showSolution ? '隐藏解答' : '显示解答';
+  renderPreview();
+}
+
+function copyCSV() {
+  if (!currentResult) return;
+  navigator.clipboard.writeText(currentResult.csv)
+    .then(() => showMsg('已复制到剪贴板', true))
+    .catch(() => {
+      document.getElementById('csv-area').select();
+      document.execCommand('copy');
+      showMsg('已复制到剪贴板', true);
+    });
+}
+
+function openInGame() {
+  if (!currentResult) return;
+  window.open(`index.html?csv=${encodeURIComponent(currentResult.csv)}`, '_blank');
+}
+</script>
+</body>
+</html>

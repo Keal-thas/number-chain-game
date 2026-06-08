@@ -43,7 +43,7 @@ npm run test:ui                  # 可视化界面（可单步调试）
 
 ---
 
-## 测试用例（33 个）
+## 测试用例（41 个）
 
 ### loading
 
@@ -132,3 +132,23 @@ npm run test:ui                  # 可视化界面（可单步调试）
 | 31 | Bug2: cannot place a value already occupied by a fixed cell | 固定格值不能被非固定格复用 |
 | 32 | Bug3: switching to desc then dragging endpoint yields desc step | 切换降序后从端点拖出降序步 |
 | 33 | Bug4: desc drag from middle cell preserves higher-value side, evicts lower lazily | 降序中间格起拖保留高值侧 |
+
+### generator page
+
+文件：`tests/generator.spec.js`
+
+| # | 用例名 | 验证内容 |
+|---|--------|---------|
+| 34 | loads with form elements visible and result hidden | 四个参数输入框和生成按钮可见，result 区域隐藏 |
+| 35 | generate shows preview cells and CSV | 点击生成后预览格子数 = rows×cols，CSV 首行格式正确 |
+| 36 | generated CSV dimensions match params | 首行 = `rows,cols`，数据行数和列数与参数一致 |
+| 37 | generated CSV has correct fixed cell count | CSV 中非零非X的值数量 = fixedCount |
+| 38 | generated CSV has correct blocked cell count | CSV 中 X 的数量 = blockedCount |
+| 39 | show solution reveals all path values | 点击"显示解答"后无 g-empty 格；再次点击恢复 |
+| 40 | regenerate produces valid result | 重新生成后 CSV 格式正确，固定格数量匹配 |
+
+### generator → game
+
+| # | 用例名 | 验证内容 |
+|---|--------|---------|
+| 41 | URL param ?csv= auto-loads puzzle in game | `index.html?csv=...` 自动渲染谜题，固定格值正确 |
