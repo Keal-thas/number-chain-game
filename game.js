@@ -346,14 +346,13 @@ function startDrag(r, c) {
     dragging = true; showMsg(''); render(); return;
   }
 
-  // Non-fixed middle cell (2+ neighbors): keep predecessor side per current mode, clear successor side
+  // Non-fixed middle cell (2+ neighbors): disconnect successor edge (mode-based);
+  // successor cells stay visible and are evicted lazily via evictValue() during drag
   {
     const nbrsList = [...getNeighbors(r, c)];
     const predVal = myVal - (mode === 'asc' ? 1 : -1);
-    const toClear = nbrsList.filter(([nr, nc]) => getEffectiveValue(nr, nc) !== predVal);
-    for (const [nr, nc] of toClear) {
-      removeEdge(r, c, nr, nc);
-      if (puzzle.grid[nr][nc].type !== 'fixed') clearConnectedPath(nr, nc);
+    for (const [nr, nc] of nbrsList) {
+      if (getEffectiveValue(nr, nc) !== predVal) removeEdge(r, c, nr, nc);
     }
   }
   active = { cells: [[r, c, myVal]], step: mode === 'asc' ? 1 : -1, unique: uniqMode };
