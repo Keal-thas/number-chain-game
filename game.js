@@ -156,20 +156,6 @@ function isAdj(r1, c1, r2, c2) {
   return Math.abs(r1 - r2) <= 1 && Math.abs(c1 - c2) <= 1 && (r1 !== r2 || c1 !== c2);
 }
 
-// BFS from (startR,startC) avoiding (avoidR,avoidC); returns true if any fixed cell is reachable
-function reachesFixed(startR, startC, avoidR, avoidC) {
-  const visited = new Set([`${avoidR},${avoidC}`, `${startR},${startC}`]);
-  const queue = [[startR, startC]];
-  while (queue.length) {
-    const [r, c] = queue.shift();
-    if (puzzle.grid[r][c].type === 'fixed') return true;
-    for (const [nr, nc] of getNeighbors(r, c)) {
-      const key = `${nr},${nc}`;
-      if (!visited.has(key)) { visited.add(key); queue.push([nr, nc]); }
-    }
-  }
-  return false;
-}
 
 // Remove a non-fixed cell from the graph (clear value + all its edges)
 function evictPosition(r, c) {
@@ -360,19 +346,11 @@ function startDrag(r, c) {
     dragging = true; showMsg(''); render(); return;
   }
 
-  // Non-fixed middle cell (2+ neighbors): keep head-side edges, clear tail side
+  // Non-fixed middle cell (2+ neighbors): keep predecessor side per current mode, clear successor side
   {
     const nbrsList = [...getNeighbors(r, c)];
-    const headNbrs = nbrsList.filter(([nr, nc]) => reachesFixed(nr, nc, r, c));
-    const tailNbrs = nbrsList.filter(([nr, nc]) => !reachesFixed(nr, nc, r, c));
-    let toClear;
-    if (headNbrs.length > 0 && tailNbrs.length > 0) {
-      toClear = tailNbrs;
-    } else {
-      // Ambiguous: use mode to pick successor side
-      const predVal = myVal - (mode === 'asc' ? 1 : -1);
-      toClear = nbrsList.filter(([nr, nc]) => getEffectiveValue(nr, nc) !== predVal);
-    }
+    const predVal = myVal - (mode === 'asc' ? 1 : -1);
+    const toClear = nbrsList.filter(([nr, nc]) => getEffectiveValue(nr, nc) !== predVal);
     for (const [nr, nc] of toClear) {
       removeEdge(r, c, nr, nc);
       if (puzzle.grid[nr][nc].type !== 'fixed') clearConnectedPath(nr, nc);
