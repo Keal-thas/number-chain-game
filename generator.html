@@ -94,6 +94,33 @@ h1 {
 .btn-copy     { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
 .btn-open     { background: #2a4a8a; color: #7aadff; border: 1px solid #3a5aaa; }
 
+/* ─── 策略选择器 ─────────────────────────── */
+#strategy-picker {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+#strategy-picker > span {
+  font-size: 0.78rem;
+  color: #99aabb;
+  margin-bottom: 2px;
+}
+.strategy-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: border-color 0.15s, background 0.15s;
+}
+.strategy-option:hover { background: #1e2a4a; }
+.strategy-option input[type=radio] { margin: 0; accent-color: #e8c468; flex-shrink: 0; }
+.strategy-option .s-label { font-size: 0.88rem; color: #d0e0f0; font-weight: 500; white-space: nowrap; }
+.strategy-option .s-desc  { font-size: 0.75rem; color: #4a6a8a; }
+
 /* ─── 消息 ────────────────────────────── */
 #message {
   min-height: 1.3em;
@@ -193,6 +220,10 @@ h1 {
     <input type="number" id="p-fixed" value="4" min="2">
     <span class="param-hint">含起终点</span>
   </div>
+  <div id="strategy-picker">
+    <span>生成策略</span>
+    <!-- 由 JS 从 STRATEGIES 数组动态渲染 -->
+  </div>
   <button class="btn btn-generate" onclick="onGenerate()">生成谜题</button>
 </div>
 
@@ -218,12 +249,28 @@ h1 {
 let currentResult = null;
 let showSolution  = false;
 
+// 从 STRATEGIES 数组动态渲染策略选择器
+(function buildStrategyPicker() {
+  const picker = document.getElementById('strategy-picker');
+  STRATEGIES.forEach((s, i) => {
+    const label = document.createElement('label');
+    label.className = 'strategy-option';
+    label.innerHTML = `
+      <input type="radio" name="strategy" value="${s.id}"${i === 0 ? ' checked' : ''}>
+      <span class="s-label">${s.label}</span>
+      <span class="s-desc">— ${s.desc}</span>
+    `;
+    picker.appendChild(label);
+  });
+})();
+
 function getParams() {
   const rows         = Math.max(2, Math.min(12, parseInt(document.getElementById('p-rows').value)    || 5));
   const cols         = Math.max(2, Math.min(12, parseInt(document.getElementById('p-cols').value)    || 5));
   const blockedCount = Math.max(0,              parseInt(document.getElementById('p-blocked').value) || 0);
   const fixedCount   = Math.max(2,              parseInt(document.getElementById('p-fixed').value)   || 4);
-  return { rows, cols, blockedCount, fixedCount };
+  const strategyId   = document.querySelector('input[name="strategy"]:checked')?.value || 'warnsdorff';
+  return { rows, cols, blockedCount, fixedCount, strategyId };
 }
 
 function showMsg(text, ok = false) {

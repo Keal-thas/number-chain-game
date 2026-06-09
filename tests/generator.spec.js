@@ -82,6 +82,32 @@ test.describe('generator page', () => {
   });
 });
 
+// ─── Strategy: Random DFS ────────────────────────────────
+test.describe('random DFS strategy', () => {
+  test('generates valid CSV with correct dimensions', async ({ page }) => {
+    await page.goto('/generator.html');
+    await page.locator('#p-rows').fill('4');
+    await page.locator('#p-cols').fill('4');
+    await page.locator('#p-blocked').fill('0');
+    await page.locator('#p-fixed').fill('3');
+    await page.locator('input[name="strategy"][value="random_dfs"]').check();
+    await page.locator('.btn-generate').click();
+    await page.locator('#result').waitFor({ state: 'visible' });
+
+    const csv = await page.locator('#csv-area').inputValue();
+    expect(csv.trim()).toMatch(/^4,4/);
+    expect(countFixedCells(csv)).toBe(3);
+  });
+
+  test('strategy radio buttons are rendered from STRATEGIES array', async ({ page }) => {
+    await page.goto('/generator.html');
+    const radios = page.locator('input[name="strategy"]');
+    await expect(radios).toHaveCount(2);
+    await expect(page.locator('input[name="strategy"][value="warnsdorff"]')).toBeChecked();
+    await expect(page.locator('input[name="strategy"][value="random_dfs"]')).not.toBeChecked();
+  });
+});
+
 // ─── Generator → game integration ────────────────────────
 test.describe('generator → game', () => {
   test('URL param ?csv= auto-loads puzzle in game', async ({ page }) => {

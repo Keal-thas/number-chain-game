@@ -24,7 +24,8 @@ function gFreeNeighbors(r, c, rows, cols, blocked, visited) {
     );
 }
 
-// Warnsdorff 启发式：每步选择后继邻格最少的方向，随机打破平局
+// ─── Strategy: Warnsdorff ─────────────────────────────────
+// 每步选后继邻格最少的方向，路径顺滑，难度适中
 function gWarnsdorff(rows, cols, blocked, totalCells, startR, startC) {
   const visited = new Set([gKey(startR, startC)]);
   const path = [[startR, startC]];
@@ -52,7 +53,53 @@ function gWarnsdorff(rows, cols, blocked, totalCells, startR, startC) {
   return path;
 }
 
-// 从路径中选取 fixedCount 个格子作为固定提示（始终包含起点和终点）
+// ─── Strategy: Random DFS ─────────────────────────────────
+// 随机选下一格，卡住则回溯；路径折返多、结构复杂，谜题难度更高
+function gRandomDfs(rows, cols, blocked, totalCells, startR, startC) {
+  const visited = new Set([gKey(startR, startC)]);
+  const path = [[startR, startC]];
+  let steps = 0;
+  const MAX_STEPS = totalCells * 800;
+
+  function dfs() {
+    if (path.length === totalCells) return true;
+    if (++steps > MAX_STEPS) return false;
+
+    const [r, c] = path[path.length - 1];
+    const nbrs = gFreeNeighbors(r, c, rows, cols, blocked, visited);
+    gShuffle(nbrs);
+
+    for (const [nr, nc] of nbrs) {
+      visited.add(gKey(nr, nc));
+      path.push([nr, nc]);
+      if (dfs()) return true;
+      path.pop();
+      visited.delete(gKey(nr, nc));
+    }
+    return false;
+  }
+
+  return dfs() ? path : null;
+}
+
+// ─── Strategy registry ────────────────────────────────────
+// 新增策略：在此数组追加一个 entry，UI 自动渲染
+const STRATEGIES = [
+  {
+    id: 'warnsdorff',
+    label: 'Warnsdorff',
+    desc: '路径顺滑，速度快，难度适中',
+    fn: gWarnsdorff,
+  },
+  {
+    id: 'random_dfs',
+    label: 'Random DFS',
+    desc: '随机回溯，路径折返多，难度更高',
+    fn: gRandomDfs,
+  },
+];
+
+// ─── 辅助：固定格选取 ─────────────────────────────────────
 function gSelectFixed(path, fixedCount) {
   const n = path.length;
   fixedCount = Math.max(2, Math.min(fixedCount, n));
@@ -81,11 +128,15 @@ function gBuildCsv(rows, cols, path, fixedIndices, blocked) {
   return lines.join('\n');
 }
 
-// 主接口：{ rows, cols, blockedCount, fixedCount } → { path, blocked, csv, rows, cols } | { error }
-function generatePuzzle({ rows, cols, blockedCount, fixedCount }) {
+// ─── 主接口 ───────────────────────────────────────────────
+// { rows, cols, blockedCount, fixedCount, strategyId }
+// → { path, blocked, csv, rows, cols, strategyId } | { error }
+function generatePuzzle({ rows, cols, blockedCount, fixedCount, strategyId = 'warnsdorff' }) {
   const totalNonBlocked = rows * cols - blockedCount;
   if (totalNonBlocked < 2) return { error: '非封锁格太少，无法生成路径' };
   fixedCount = Math.max(2, Math.min(fixedCount, totalNonBlocked));
+
+  const strategy = STRATEGIES.find(s => s.id === strategyId) || STRATEGIES[0];
 
   const allCells = [];
   for (let r = 0; r < rows; r++)
@@ -100,12 +151,12 @@ function generatePuzzle({ rows, cols, blockedCount, fixedCount }) {
 
     for (let si = 0; si < Math.min(8, freeCells.length); si++) {
       const [sr, sc] = freeCells[si];
-      const path = gWarnsdorff(rows, cols, blocked, totalNonBlocked, sr, sc);
+      const path = strategy.fn(rows, cols, blocked, totalNonBlocked, sr, sc);
       if (!path) continue;
 
       const fixedIndices = gSelectFixed(path, fixedCount);
       const csv = gBuildCsv(rows, cols, path, fixedIndices, blocked);
-      return { path, blocked, csv, rows, cols };
+      return { path, blocked, csv, rows, cols, strategyId };
     }
   }
 
