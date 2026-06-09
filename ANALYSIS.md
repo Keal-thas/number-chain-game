@@ -1,6 +1,6 @@
 # Number Chain — 完整分析文档
 
-> 基于代码实际行为编写。测试基线：41/41 Playwright 测试通过。
+> 基于代码实际行为编写。测试基线：50/50 Playwright 测试通过。
 
 ---
 
@@ -127,7 +127,7 @@ filled === totalCells // → 显示 "🎉 完成！"
 
 ---
 
-## 五、测试覆盖（41 tests，全通过）
+## 五、测试覆盖（50 tests，全通过）
 
 | 类别 | 数量 | 覆盖内容 |
 |------|------|---------|
@@ -143,7 +143,9 @@ filled === totalCells // → 显示 "🎉 完成！"
 | messages | 3 | 空格提示、边界提示、完成消息 |
 | bug regression | 4 | Bug1-4 回归 |
 | generator page | 7 | 页面加载、生成结果、CSV 维度/固定格/封锁格数量、解答切换、重新生成 |
+| random DFS strategy | 2 | 生成有效 CSV、策略 radio 按钮渲染 |
 | generator → game | 1 | ?csv= URL 参数自动加载谜题 |
+| solver | 7 | 按钮显示、answer 格数量/值、toggle、用户格不覆盖、reset 清除、blocked 格 |
 
 ---
 

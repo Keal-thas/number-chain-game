@@ -43,7 +43,7 @@ npm run test:ui                  # 可视化界面（可单步调试）
 
 ---
 
-## 测试用例（41 个）
+## 测试用例（50 个）
 
 ### loading
 
@@ -147,8 +147,29 @@ npm run test:ui                  # 可视化界面（可单步调试）
 | 39 | show solution reveals all path values | 点击"显示解答"后无 g-empty 格；再次点击恢复 |
 | 40 | regenerate produces valid result | 重新生成后 CSV 格式正确，固定格数量匹配 |
 
+### random DFS strategy
+
+| # | 用例名 | 验证内容 |
+|---|--------|---------|
+| 41 | random_dfs generates valid CSV with correct dimensions | 选择 random_dfs 策略，生成正确格式和固定格数 |
+| 42 | strategy radio buttons are rendered from STRATEGIES array | radio 按钮数量 = 2，Warnsdorff 默认选中 |
+
 ### generator → game
 
 | # | 用例名 | 验证内容 |
 |---|--------|---------|
-| 41 | URL param ?csv= auto-loads puzzle in game | `index.html?csv=...` 自动渲染谜题，固定格值正确 |
+| 43 | URL param ?csv= auto-loads puzzle in game | `index.html?csv=...` 自动渲染谜题，固定格值正确 |
+
+### solver
+
+文件：`tests/solver.spec.js`
+
+| # | 用例名 | 验证内容 |
+|---|--------|---------|
+| 44 | show answer button exists after loading puzzle | 加载谜题后按钮可见，文字为"显示答案: 关" |
+| 45 | clicking show answer fills empty cells with answer values | 点击后空格变为 cell-answer，数量正确（totalCells - fixed） |
+| 46 | answer cells show numeric values | answer 格子显示 1–N 范围内的数字 |
+| 47 | toggling answer off hides answer cells | 再次点击后 cell-answer 消失，按钮文字恢复 |
+| 48 | user-filled cells are not replaced by answer display | 玩家已填格保持 cell-filled，不被 cell-answer 覆盖 |
+| 49 | reset clears answer mode | 重置后 answer 模式关闭，cell-answer 消失 |
+| 50 | works with blocked cells | 含封锁格的谜题能正确求解并展示答案 |

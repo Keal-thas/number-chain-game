@@ -80,6 +80,8 @@ textarea:focus { border-color: #e8c468; }
 .btn-erase  { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
 .btn-erase.active { background: #5a2020; color: #ff8888; border-color: #7a3030; }
 .btn-reset  { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
+.btn-answer { background: #252538; color: #99aabb; border: 1px solid #3a3a58; }
+.btn-answer.active { background: #3a1a4a; color: #c07aff; border-color: #6a2aaa; }
 
 #controls {
   display: none;
@@ -164,6 +166,11 @@ textarea:focus { border-color: #e8c468; }
   background: #1e3a6e;
   color: #7ab8ff;
   border: 2px solid #2a5aaa;
+}
+.cell-answer  {
+  background: #2a1a3e;
+  color: #c07aff;
+  border: 2px solid #6a2aaa;
 }
 .cell-locked  {
   background: #0d3a22;

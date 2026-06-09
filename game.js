@@ -16,6 +16,8 @@ let active      = null;        // drag in progress: {cells:[[r,c,val],...], step
 let mode        = 'asc';
 let lockMode    = false;
 let eraseMode   = false;
+let answerMode  = false;
+let answerGrid  = null;   // solved grid: [r][c] = value | null
 let dragging    = false;
 let totalCells  = 0;
 
@@ -57,8 +59,11 @@ function loadPuzzle() {
     cellValue   = Array.from({ length: puzzle.rows }, () => Array(puzzle.cols).fill(null));
     lockedCells = new Set();
     active      = null;
+    answerMode  = false;
+    answerGrid  = null;
 
     document.getElementById('controls').style.display = 'flex';
+    updateAnswerBtn();
     render();
     showMsg('');
     updateProgress();
@@ -72,8 +77,10 @@ function resetAll() {
   lockedCells = new Set();
   active      = null;
   eraseMode   = false;
+  answerMode  = false;
   document.getElementById('btn-erase').classList.remove('active');
   document.getElementById('btn-erase').textContent = '✏ 擦除: 关';
+  updateAnswerBtn();
   render();
   showMsg('');
   updateProgress();
@@ -98,6 +105,24 @@ function toggleErase() {
   const b = document.getElementById('btn-erase');
   b.textContent = `✏ 擦除: ${eraseMode ? '开' : '关'}`;
   b.classList.toggle('active', eraseMode);
+}
+
+function toggleAnswer() {
+  if (!puzzle) return;
+  if (!answerGrid) {
+    answerGrid = solvePuzzle(puzzle);
+    if (!answerGrid) { showMsg('无解或谜题无效'); return; }
+  }
+  answerMode = !answerMode;
+  updateAnswerBtn();
+  render();
+}
+
+function updateAnswerBtn() {
+  const b = document.getElementById('btn-answer');
+  if (!b) return;
+  b.textContent = `显示答案: ${answerMode ? '开' : '关'}`;
+  b.classList.toggle('active', answerMode);
 }
 
 function showMsg(t) { document.getElementById('message').textContent = t; }
@@ -197,6 +222,7 @@ function getCellClass(r, c) {
   if (inActive(r, c))          return 'cell-active';
   if (cellValue[r][c] !== null)
     return lockedCells.has(`${r},${c}`) ? 'cell-locked' : 'cell-filled';
+  if (answerMode && answerGrid?.[r]?.[c] != null) return 'cell-answer';
   return 'cell-empty';
 }
 
@@ -208,7 +234,9 @@ function getCellText(r, c) {
     const idx = active.cells.findIndex(([pr, pc]) => pr === r && pc === c);
     return active.cells[idx][2];
   }
-  return cellValue[r][c] ?? '';
+  if (cellValue[r][c] !== null) return cellValue[r][c];
+  if (answerMode && answerGrid?.[r]?.[c] != null) return answerGrid[r][c];
+  return '';
 }
 
 function render() { renderCells(); renderSVG(); }

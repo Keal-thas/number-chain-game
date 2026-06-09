@@ -29,6 +29,7 @@
   <button id="btn-lock"   class="btn btn-lock"            onclick="toggleLock()">锁定模式: 关</button>
   <button id="btn-erase"  class="btn btn-erase"          onclick="toggleErase()">✏ 擦除: 关</button>
   <button                 class="btn btn-reset"           onclick="resetAll()">重置全部</button>
+  <button id="btn-answer" class="btn btn-answer"          onclick="toggleAnswer()">显示答案: 关</button>
 </div>
 
 <div id="progress"></div>
@@ -39,6 +40,7 @@
   <div id="cells-layer"></div>
 </div>
 
+<script src="solver.js"></script>
 <script src="game.js"></script>
 </body>
 </html>
