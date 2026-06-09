@@ -43,7 +43,7 @@ npm run test:ui                  # 可视化界面（可单步调试）
 
 ---
 
-## 测试用例（50 个）
+## 测试用例（53 个）
 
 ### loading
 
@@ -147,18 +147,21 @@ npm run test:ui                  # 可视化界面（可单步调试）
 | 39 | show solution reveals all path values | 点击"显示解答"后无 g-empty 格；再次点击恢复 |
 | 40 | regenerate produces valid result | 重新生成后 CSV 格式正确，固定格数量匹配 |
 
-### random DFS strategy
+### backbite strategies
 
 | # | 用例名 | 验证内容 |
 |---|--------|---------|
-| 41 | random_dfs generates valid CSV with correct dimensions | 选择 random_dfs 策略，生成正确格式和固定格数 |
-| 42 | strategy radio buttons are rendered from STRATEGIES array | radio 按钮数量 = 2，Warnsdorff 默认选中 |
+| 41 | strategy radio buttons rendered from STRATEGIES array | radio 按钮数量 = 3，Warnsdorff 默认选中 |
+| 42 | backbite_medium generates valid CSV | 生成格式正确，固定格数匹配 |
+| 43 | backbite_hard generates valid CSV | 同上 |
+| 44 | backbite works with blocked cells | 含封锁格时仍可生成，X 数量正确 |
+| 45 | backbite works on large grid | 10×10 大格子生成成功 |
 
 ### generator → game
 
 | # | 用例名 | 验证内容 |
 |---|--------|---------|
-| 43 | URL param ?csv= auto-loads puzzle in game | `index.html?csv=...` 自动渲染谜题，固定格值正确 |
+| 46 | URL param ?csv= auto-loads puzzle in game | `index.html?csv=...` 自动渲染谜题，固定格值正确 |
 
 ### solver
 

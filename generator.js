@@ -25,7 +25,7 @@ function gFreeNeighbors(r, c, rows, cols, blocked, visited) {
 }
 
 // ─── Strategy: Warnsdorff ─────────────────────────────────
-// 每步选后继邻格最少的方向，路径顺滑，难度适中
+// 每步选后继邻格最少的方向，路径顺滑，难度低
 function gWarnsdorff(rows, cols, blocked, totalCells, startR, startC) {
   const visited = new Set([gKey(startR, startC)]);
   const path = [[startR, startC]];
@@ -53,49 +53,92 @@ function gWarnsdorff(rows, cols, blocked, totalCells, startR, startC) {
   return path;
 }
 
-// ─── Strategy: Random DFS ─────────────────────────────────
-// 随机选下一格，卡住则回溯；路径折返多、结构复杂，谜题难度更高
-function gRandomDfs(rows, cols, blocked, totalCells, startR, startC) {
-  const visited = new Set([gKey(startR, startC)]);
-  const path = [[startR, startC]];
-  let steps = 0;
-  const MAX_STEPS = totalCells * 800;
+// ─── Strategy: Backbite (MCMC) ───────────────────────────
+// 先用 Warnsdorff 生成初始路径，再用 backbite move 随机化。
+//
+// Backbite move（作用于端点 path[0]）：
+//   找路径中与 path[0] 相邻的格子 path[s]（s≥2）
+//   翻转 path[0..s-1]  →  新端点变为 path[s-1]
+//   路径仍然合法（每对相邻元素仍然在网格上相邻）
+//
+// numMoves 越多，路径越接近均匀随机，谜题难度越高。
+// 无回溯，永不失败，速度取决于 numMoves × O(n)。
+function gBackbite(rows, cols, blocked, totalCells, numMoves) {
+  // 用 Warnsdorff 找初始路径
+  const allFree = [];
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++)
+      if (!blocked.has(gKey(r, c)))
+        allFree.push([r, c]);
+  gShuffle(allFree);
 
-  function dfs() {
-    if (path.length === totalCells) return true;
-    if (++steps > MAX_STEPS) return false;
+  let path = null;
+  for (let i = 0; i < Math.min(8, allFree.length); i++) {
+    path = gWarnsdorff(rows, cols, blocked, totalCells, allFree[i][0], allFree[i][1]);
+    if (path) break;
+  }
+  if (!path) return null;
 
-    const [r, c] = path[path.length - 1];
-    const nbrs = gFreeNeighbors(r, c, rows, cols, blocked, visited);
-    gShuffle(nbrs);
+  // posIdx[key] = 该格在 path 中的下标
+  const posIdx = new Map(path.map(([r, c], i) => [gKey(r, c), i]));
 
-    for (const [nr, nc] of nbrs) {
-      visited.add(gKey(nr, nc));
-      path.push([nr, nc]);
-      if (dfs()) return true;
-      path.pop();
-      visited.delete(gKey(nr, nc));
+  for (let m = 0; m < numMoves; m++) {
+    // 随机选端点（path[0] 或 path[n-1]）
+    const useStart = Math.random() < 0.5;
+    const eI    = useStart ? 0 : path.length - 1;
+    const skipI = useStart ? 1 : path.length - 2;
+    const [er, ec] = path[eI];
+
+    // 找端点在路径中的邻格（排除相邻步，避免退化）
+    const cands = [];
+    for (const [dr, dc] of DIRS8) {
+      const nr = er + dr, nc = ec + dc;
+      if (nr < 0 || nr >= rows || nc < 0 || nc >= cols) continue;
+      if (blocked.has(gKey(nr, nc))) continue;
+      const ni = posIdx.get(gKey(nr, nc));
+      if (ni !== undefined && ni !== skipI) cands.push(ni);
     }
-    return false;
+    if (!cands.length) continue;
+
+    const s = cands[Math.floor(Math.random() * cands.length)];
+
+    // 原地翻转目标片段，同步更新 posIdx
+    if (useStart) {
+      for (let i = 0, j = s - 1; i < j; i++, j--)
+        [path[i], path[j]] = [path[j], path[i]];
+      for (let i = 0; i < s; i++)
+        posIdx.set(gKey(path[i][0], path[i][1]), i);
+    } else {
+      for (let i = s + 1, j = path.length - 1; i < j; i++, j--)
+        [path[i], path[j]] = [path[j], path[i]];
+      for (let i = s + 1; i < path.length; i++)
+        posIdx.set(gKey(path[i][0], path[i][1]), i);
+    }
   }
 
-  return dfs() ? path : null;
+  return path;
 }
 
 // ─── Strategy registry ────────────────────────────────────
-// 新增策略：在此数组追加一个 entry，UI 自动渲染
+// 新增策略：往此数组追加一个 entry，UI 自动渲染，无需改 HTML
 const STRATEGIES = [
   {
     id: 'warnsdorff',
     label: 'Warnsdorff',
-    desc: '路径顺滑，速度快，难度适中',
+    desc: '路径顺滑，速度极快，难度低',
     fn: gWarnsdorff,
   },
   {
-    id: 'random_dfs',
-    label: 'Random DFS',
-    desc: '随机回溯，路径折返多，难度更高',
-    fn: gRandomDfs,
+    id: 'backbite_medium',
+    label: 'Backbite 中等',
+    desc: '随机化路径，折返适中，难度中等',
+    fn: (rows, cols, blocked, n) => gBackbite(rows, cols, blocked, n, n * 80),
+  },
+  {
+    id: 'backbite_hard',
+    label: 'Backbite 困难',
+    desc: '深度随机化，路径复杂，难度高',
+    fn: (rows, cols, blocked, n) => gBackbite(rows, cols, blocked, n, n * 500),
   },
 ];
 

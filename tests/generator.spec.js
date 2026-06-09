@@ -1,11 +1,12 @@
 const { test, expect } = require('@playwright/test');
 
-async function openGenerator(page, { rows = 5, cols = 5, blocked = 0, fixed = 4 } = {}) {
+async function openGenerator(page, { rows = 5, cols = 5, blocked = 0, fixed = 4, strategy } = {}) {
   await page.goto('/generator.html');
   await page.locator('#p-rows').fill(String(rows));
   await page.locator('#p-cols').fill(String(cols));
   await page.locator('#p-blocked').fill(String(blocked));
   await page.locator('#p-fixed').fill(String(fixed));
+  if (strategy) await page.locator(`input[name="strategy"][value="${strategy}"]`).check();
   await page.locator('.btn-generate').click();
   await page.locator('#result').waitFor({ state: 'visible' });
 }
@@ -44,7 +45,7 @@ test.describe('generator page', () => {
     const csv = await page.locator('#csv-area').inputValue();
     const lines = csv.trim().split('\n');
     expect(lines[0]).toBe('3,5');
-    expect(lines.length).toBe(4);          // header + 3 rows
+    expect(lines.length).toBe(4);
     expect(lines[1].split(',').length).toBe(5);
   });
 
@@ -80,31 +81,43 @@ test.describe('generator page', () => {
     expect(csv.trim()).toMatch(/^4,4/);
     expect(countFixedCells(csv)).toBe(3);
   });
+
+  test('strategy radio buttons rendered from STRATEGIES array', async ({ page }) => {
+    await page.goto('/generator.html');
+    const radios = page.locator('input[name="strategy"]');
+    await expect(radios).toHaveCount(3);
+    await expect(page.locator('input[name="strategy"][value="warnsdorff"]')).toBeChecked();
+  });
 });
 
-// ─── Strategy: Random DFS ────────────────────────────────
-test.describe('random DFS strategy', () => {
-  test('generates valid CSV with correct dimensions', async ({ page }) => {
-    await page.goto('/generator.html');
-    await page.locator('#p-rows').fill('4');
-    await page.locator('#p-cols').fill('4');
-    await page.locator('#p-blocked').fill('0');
-    await page.locator('#p-fixed').fill('3');
-    await page.locator('input[name="strategy"][value="random_dfs"]').check();
-    await page.locator('.btn-generate').click();
-    await page.locator('#result').waitFor({ state: 'visible' });
-
+// ─── Backbite strategies ──────────────────────────────────
+test.describe('backbite strategies', () => {
+  test('backbite_medium generates valid CSV', async ({ page }) => {
+    await openGenerator(page, { rows: 4, cols: 4, blocked: 0, fixed: 3, strategy: 'backbite_medium' });
     const csv = await page.locator('#csv-area').inputValue();
     expect(csv.trim()).toMatch(/^4,4/);
     expect(countFixedCells(csv)).toBe(3);
   });
 
-  test('strategy radio buttons are rendered from STRATEGIES array', async ({ page }) => {
-    await page.goto('/generator.html');
-    const radios = page.locator('input[name="strategy"]');
-    await expect(radios).toHaveCount(2);
-    await expect(page.locator('input[name="strategy"][value="warnsdorff"]')).toBeChecked();
-    await expect(page.locator('input[name="strategy"][value="random_dfs"]')).not.toBeChecked();
+  test('backbite_hard generates valid CSV', async ({ page }) => {
+    await openGenerator(page, { rows: 4, cols: 4, blocked: 0, fixed: 3, strategy: 'backbite_hard' });
+    const csv = await page.locator('#csv-area').inputValue();
+    expect(csv.trim()).toMatch(/^4,4/);
+    expect(countFixedCells(csv)).toBe(3);
+  });
+
+  test('backbite works with blocked cells', async ({ page }) => {
+    await openGenerator(page, { rows: 5, cols: 5, blocked: 3, fixed: 2, strategy: 'backbite_hard' });
+    const csv = await page.locator('#csv-area').inputValue();
+    expect(csv.trim()).toMatch(/^5,5/);
+    expect(countCsvToken(csv, 'X')).toBe(3);
+  });
+
+  test('backbite works on large grid', async ({ page }) => {
+    await openGenerator(page, { rows: 10, cols: 10, blocked: 0, fixed: 4, strategy: 'backbite_hard' });
+    const csv = await page.locator('#csv-area').inputValue();
+    expect(csv.trim()).toMatch(/^10,10/);
+    expect(countFixedCells(csv)).toBe(4);
   });
 });
 
