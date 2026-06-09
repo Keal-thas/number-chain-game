@@ -38,8 +38,17 @@ function solvePuzzle(puzzle) {
     return out;
   }
 
+  // nextFixed[v] = 下一个值 > v 的固定格 {val, r, c}，用于 Chebyshev 剪枝
+  const nextFixed = new Array(totalCells + 2).fill(null);
+  for (let v = totalCells; v >= 1; v--) {
+    if (pos[v] !== null)
+      nextFixed[v - 1] = { val: v, r: pos[v][0], c: pos[v][1] };
+    else
+      nextFixed[v - 1] = nextFixed[v];
+  }
+
   let steps = 0;
-  const MAX_STEPS = 2_000_000;
+  const MAX_STEPS = 10_000_000;
 
   function solve(v) {
     if (v > totalCells) return true;
@@ -57,7 +66,10 @@ function solvePuzzle(puzzle) {
 
     // 非固定格：尝试 pos[v-1] 的所有自由邻格
     const [pr, pc] = pos[v - 1];
+    const nf = nextFixed[v];
     for (const [nr, nc] of freeNeighbors(pr, pc)) {
+      // Chebyshev 剪枝：若候选格到下一固定格距离 > 剩余步数，跳过
+      if (nf && Math.max(Math.abs(nr - nf.r), Math.abs(nc - nf.c)) > nf.val - v) continue;
       pos[v] = [nr, nc];
       used[nr][nc] = true;
       if (solve(v + 1)) return true;
@@ -72,9 +84,12 @@ function solvePuzzle(puzzle) {
   if (pos[1] !== null) {
     found = solve(1);
   } else {
+    const nf1 = nextFixed[1];
     outer: for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
         if (!used[r][c]) {
+          // Chebyshev 剪枝：起点到下一固定格距离 > 剩余步数，跳过
+          if (nf1 && Math.max(Math.abs(r - nf1.r), Math.abs(c - nf1.c)) > nf1.val - 1) continue;
           pos[1] = [r, c];
           used[r][c] = true;
           if (solve(2)) { found = true; break outer; }
